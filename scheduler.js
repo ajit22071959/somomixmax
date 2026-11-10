@@ -157,6 +157,351 @@
     return { applied: applied, ignored: ignored, set: seen };
   }
 
+
+  function slotKey(week, day) {
+    return week + ":" + day;
+  }
+
+  /**
+   * Locks are {week, day, shirt, pant} on working days. Marks on holidays,
+   * outside the period, or with a shirt/pant index that no longer exists
+   * are ignored.
+   */
+  function parseLocks(locks, weeks, daysPerWeek, S, P, holidaySet) {
+    const applied = [];
+    const ignored = [];
+    const map = new Map();
+    if (!Array.isArray(locks)) {
+      return { applied: applied, ignored: ignored, map: map };
+    }
+    for (let i = 0; i < locks.length; i++) {
+      const raw = locks[i] || {};
+      const week = raw.week;
+      const day = raw.day;
+      const shirt = raw.shirt;
+      const pant = raw.pant;
+      if (!isInt(week) || !isInt(day) || !isInt(shirt) || !isInt(pant)) {
+        ignored.push(raw);
+        continue;
+      }
+      const key = slotKey(week, day);
+      if (week < 1 || week > weeks || day < 0 || day >= daysPerWeek) {
+        ignored.push({ week: week, day: day, shirt: shirt, pant: pant });
+        continue;
+      }
+      if (holidaySet && holidaySet.has(key)) {
+        ignored.push({ week: week, day: day, shirt: shirt, pant: pant });
+        continue;
+      }
+      if (shirt < 0 || shirt >= S || pant < 0 || pant >= P) {
+        ignored.push({ week: week, day: day, shirt: shirt, pant: pant });
+        continue;
+      }
+      if (map.has(key)) continue;
+      const item = {
+        week: week,
+        day: day,
+        shirt: shirt,
+        pant: pant,
+        slot: (week - 1) * daysPerWeek + day,
+        dayName: DAY_NAMES[day],
+      };
+      map.set(key, item);
+      applied.push(item);
+    }
+    applied.sort(function (a, b) { return a.slot - b.slot; });
+    return { applied: applied, ignored: ignored, map: map };
+  }
+
+  function workingCalendar(weeks, daysPerWeek, holidaySet) {
+    const slots = [];
+    for (let w = 1; w <= weeks; w++) {
+      for (let d = 0; d < daysPerWeek; d++) {
+        if (holidaySet && holidaySet.has(slotKey(w, d))) continue;
+        slots.push({
+          week: w,
+          day: d,
+          key: slotKey(w, d),
+          dayName: DAY_NAMES[d],
+        });
+      }
+    }
+    return slots;
+  }
+
+  function selectRemainingPairs(S, P, lockedPairs, R, shirtRank, pantRank) {
+    const pairCount = [];
+    const sCount = new Array(S).fill(0);
+    const pCount = new Array(P).fill(0);
+    for (let s = 0; s < S; s++) {
+      pairCount[s] = new Array(P).fill(0);
+    }
+    for (let i = 0; i < lockedPairs.length; i++) {
+      const s = lockedPairs[i].shirt;
+      const p = lockedPairs[i].pant;
+      pairCount[s][p]++;
+      sCount[s]++;
+      pCount[p]++;
+    }
+    const chosen = [];
+    for (let n = 0; n < R; n++) {
+      let bestS = 0;
+      let bestP = 0;
+      let found = false;
+      for (let s = 0; s < S; s++) {
+        for (let p = 0; p < P; p++) {
+          if (!found) {
+            bestS = s;
+            bestP = p;
+            found = true;
+            continue;
+          }
+          if (pairCount[s][p] !== pairCount[bestS][bestP]) {
+            if (pairCount[s][p] < pairCount[bestS][bestP]) {
+              bestS = s;
+              bestP = p;
+            }
+            continue;
+          }
+          if (sCount[s] !== sCount[bestS]) {
+            if (sCount[s] < sCount[bestS]) {
+              bestS = s;
+              bestP = p;
+            }
+            continue;
+          }
+          if (pCount[p] !== pCount[bestP]) {
+            if (pCount[p] < pCount[bestP]) {
+              bestS = s;
+              bestP = p;
+            }
+            continue;
+          }
+          if (shirtRank[s] !== shirtRank[bestS]) {
+            if (shirtRank[s] < shirtRank[bestS]) {
+              bestS = s;
+              bestP = p;
+            }
+            continue;
+          }
+          if (pantRank[p] < pantRank[bestP]) {
+            bestS = s;
+            bestP = p;
+          }
+        }
+      }
+      chosen.push([bestS, bestP]);
+      pairCount[bestS][bestP]++;
+      sCount[bestS]++;
+      pCount[bestP]++;
+    }
+    return chosen;
+  }
+
+  function bagClashScore(pair, prev, adjNext, S, P) {
+    let score = 0;
+    if (prev) {
+      if (S >= 2 && pair[0] === prev.shirt) score += 50;
+      if (P >= 2 && pair[1] === prev.pant) score += 20;
+    }
+    if (adjNext) {
+      if (S >= 2 && pair[0] === adjNext.shirt) score += 50;
+      if (P >= 2 && pair[1] === adjNext.pant) score += 20;
+    }
+    return score;
+  }
+
+  function pickFromBag(bag, prev, adjNext, S, P, shirtRank, pantRank) {
+    let best = 0;
+    const shirtRem = new Array(S).fill(0);
+    const pantRem = new Array(P).fill(0);
+    for (let i = 0; i < bag.length; i++) {
+      shirtRem[bag[i][0]]++;
+      pantRem[bag[i][1]]++;
+    }
+    for (let i = 1; i < bag.length; i++) {
+      const a = bag[i];
+      const b = bag[best];
+      const aClash = bagClashScore(a, prev, adjNext, S, P);
+      const bClash = bagClashScore(b, prev, adjNext, S, P);
+      if (aClash !== bClash) {
+        if (aClash < bClash) best = i;
+        continue;
+      }
+      if (shirtRem[a[0]] !== shirtRem[b[0]]) {
+        if (shirtRem[a[0]] > shirtRem[b[0]]) best = i;
+        continue;
+      }
+      if (pantRem[a[1]] !== pantRem[b[1]]) {
+        if (pantRem[a[1]] > pantRem[b[1]]) best = i;
+        continue;
+      }
+      if (shirtRank[a[0]] !== shirtRank[b[0]]) {
+        if (shirtRank[a[0]] < shirtRank[b[0]]) best = i;
+        continue;
+      }
+      if (pantRank[a[1]] < pantRank[b[1]]) best = i;
+    }
+    return bag.splice(best, 1)[0];
+  }
+
+  function scheduleAroundLocks(workCal, lockMap, remainingPairs, S, P, shirtRank, pantRank) {
+    const bag = remainingPairs.map(function (pair) { return [pair[0], pair[1]]; });
+    const days = [];
+    let prev = null;
+    for (let i = 0; i < workCal.length; i++) {
+      const lock = lockMap.get(workCal[i].key);
+      if (lock) {
+        days.push({ shirt: lock.shirt, pant: lock.pant, locked: true });
+        prev = { shirt: lock.shirt, pant: lock.pant };
+        continue;
+      }
+      const adjNext =
+        i + 1 < workCal.length && lockMap.has(workCal[i + 1].key)
+          ? lockMap.get(workCal[i + 1].key)
+          : null;
+      const picked = pickFromBag(bag, prev, adjNext, S, P, shirtRank, pantRank);
+      days.push({ shirt: picked[0], pant: picked[1], locked: false });
+      prev = { shirt: picked[0], pant: picked[1] };
+    }
+    return days;
+  }
+
+  function adjacentLockedNeighbors(workCal, lockMap, index) {
+    let prev = null;
+    let next = null;
+    for (let i = index - 1; i >= 0; i--) {
+      if (lockMap.has(workCal[i].key)) {
+        if (i === index - 1) prev = lockMap.get(workCal[i].key);
+        break;
+      }
+    }
+    for (let i = index + 1; i < workCal.length; i++) {
+      if (lockMap.has(workCal[i].key)) {
+        if (i === index + 1) next = lockMap.get(workCal[i].key);
+        break;
+      }
+    }
+    return { prev: prev, next: next };
+  }
+
+  function scorePairForLock(s, p, lockedPairs, D, S, P, prev, next) {
+    const unique = S * P;
+    const pairCounts = new Map();
+    const sCount = new Array(S).fill(0);
+    const pCount = new Array(P).fill(0);
+    function add(shirt, pant) {
+      const key = shirt + ":" + pant;
+      pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+      sCount[shirt]++;
+      pCount[pant]++;
+    }
+    for (let i = 0; i < lockedPairs.length; i++) add(lockedPairs[i].shirt, lockedPairs[i].pant);
+    add(s, p);
+    const targetPair = D > 0 ? Math.ceil(D / unique) : 1;
+    const targetShirt = D > 0 ? Math.ceil(D / S) : 1;
+    const targetPant = D > 0 ? Math.ceil(D / P) : 1;
+    let score = 0;
+    pairCounts.forEach(function (count) {
+      if (count > targetPair) score += 1000 * (count - targetPair);
+      score += count * 8;
+    });
+    for (let i = 0; i < S; i++) {
+      if (sCount[i] > targetShirt) score += 120 * (sCount[i] - targetShirt);
+      score += sCount[i] * 2;
+    }
+    for (let i = 0; i < P; i++) {
+      if (pCount[i] > targetPant) score += 80 * (pCount[i] - targetPant);
+      score += pCount[i];
+    }
+    if (prev) {
+      if (S >= 2 && prev.shirt === s) score += 60;
+      if (P >= 2 && prev.pant === p) score += 25;
+    }
+    if (next) {
+      if (S >= 2 && next.shirt === s) score += 60;
+      if (P >= 2 && next.pant === p) score += 25;
+    }
+    return score;
+  }
+
+  /**
+   * Rank every shirt/pant pair for a given working day, given the other
+   * locks, so Shuffle can cycle through good alternatives.
+   */
+  function listDayAlternatives(options, week, day) {
+    const S = options.shirts;
+    const P = options.pants;
+    const weeks = options.weeks;
+    const daysPerWeek = options.daysPerWeek;
+    const holidayInfo = parseHolidays(options.holidays, weeks, daysPerWeek);
+    const lockInfo = parseLocks(options.locks, weeks, daysPerWeek, S, P, holidayInfo.set);
+    const workCal = workingCalendar(weeks, daysPerWeek, holidayInfo.set);
+    const key = slotKey(week, day);
+    let index = -1;
+    for (let i = 0; i < workCal.length; i++) {
+      if (workCal[i].key === key) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) return [];
+    const otherLocks = lockInfo.applied.filter(function (lock) {
+      return lock.week !== week || lock.day !== day;
+    });
+    const otherMap = new Map();
+    for (let i = 0; i < otherLocks.length; i++) {
+      otherMap.set(slotKey(otherLocks[i].week, otherLocks[i].day), otherLocks[i]);
+    }
+    const neighbors = adjacentLockedNeighbors(workCal, otherMap, index);
+    const D = workCal.length;
+    const ranked = [];
+    for (let s = 0; s < S; s++) {
+      for (let p = 0; p < P; p++) {
+        ranked.push({
+          shirt: s,
+          pant: p,
+          score: scorePairForLock(s, p, otherLocks, D, S, P, neighbors.prev, neighbors.next),
+        });
+      }
+    }
+    ranked.sort(function (a, b) {
+      if (a.score !== b.score) return a.score - b.score;
+      if (a.shirt !== b.shirt) return a.shirt - b.shirt;
+      return a.pant - b.pant;
+    });
+    return ranked;
+  }
+
+  function cycleDayPair(options, week, day, currentShirt, currentPant) {
+    const ranked = listDayAlternatives(options, week, day);
+    if (!ranked.length) {
+      return { shirt: currentShirt, pant: currentPant, changed: false, reason: "not-working" };
+    }
+    if (ranked.length === 1) {
+      const only = ranked[0];
+      return {
+        shirt: only.shirt,
+        pant: only.pant,
+        changed: only.shirt !== currentShirt || only.pant !== currentPant,
+        reason: only.shirt === currentShirt && only.pant === currentPant ? "only-pair" : null,
+      };
+    }
+    let idx = -1;
+    for (let i = 0; i < ranked.length; i++) {
+      if (ranked[i].shirt === currentShirt && ranked[i].pant === currentPant) {
+        idx = i;
+        break;
+      }
+    }
+    const next = ranked[(idx + 1) % ranked.length];
+    return {
+      shirt: next.shirt,
+      pant: next.pant,
+      changed: next.shirt !== currentShirt || next.pant !== currentPant,
+    };
+  }
+
   function attachRepeatRefs(slots) {
     const lastSeen = new Map();
     for (let i = 0; i < slots.length; i++) {
@@ -708,6 +1053,7 @@
 
     const periodDays = weeks * daysPerWeek;
     const holidayInfo = parseHolidays(options.holidays, weeks, daysPerWeek);
+    const lockInfo = parseLocks(options.locks, weeks, daysPerWeek, S, P, holidayInfo.set);
     const D = periodDays - holidayInfo.applied.length;
     const rng = seed === 0 ? null : mulberry32(seed);
     const shirtPerm = shuffledPerm(S, rng);
@@ -716,23 +1062,36 @@
     const pantRank = indexRank(pantPerm);
 
     const unique = S * P;
-    const fullRounds = D > 0 ? Math.floor(D / unique) : 0;
-    const extraCount = D > 0 ? D % unique : 0;
+    let days = [];
+    if (lockInfo.applied.length > 0 && D > 0) {
+      const workCal = workingCalendar(weeks, daysPerWeek, holidayInfo.set);
+      const remaining = selectRemainingPairs(
+        S,
+        P,
+        lockInfo.applied,
+        D - lockInfo.applied.length,
+        shirtRank,
+        pantRank
+      );
+      days = scheduleAroundLocks(workCal, lockInfo.map, remaining, S, P, shirtRank, pantRank);
+    } else {
+      const fullRounds = D > 0 ? Math.floor(D / unique) : 0;
+      const extraCount = D > 0 ? D % unique : 0;
 
-    const rounds = [];
-    const complete = allPairs(S, P, shirtPerm, pantPerm);
-    for (let i = 0; i < fullRounds; i++) {
-      rounds.push(complete.map(function (pair) { return [pair[0], pair[1]]; }));
-    }
-    if (extraCount > 0) {
-      rounds.push(selectBalancedPairs(S, P, extraCount, shirtRank, pantRank));
-    }
+      const rounds = [];
+      const complete = allPairs(S, P, shirtPerm, pantPerm);
+      for (let i = 0; i < fullRounds; i++) {
+        rounds.push(complete.map(function (pair) { return [pair[0], pair[1]]; }));
+      }
+      if (extraCount > 0) {
+        rounds.push(selectBalancedPairs(S, P, extraCount, shirtRank, pantRank));
+      }
 
-    const days = [];
-    for (let i = 0; i < rounds.length; i++) {
-      const prev = days.length ? days[days.length - 1] : null;
-      const ordered = sequenceRound(rounds[i], prev, S, P, shirtRank, pantRank);
-      for (let j = 0; j < ordered.length; j++) days.push(ordered[j]);
+      for (let i = 0; i < rounds.length; i++) {
+        const prev = days.length ? days[days.length - 1] : null;
+        const ordered = sequenceRound(rounds[i], prev, S, P, shirtRank, pantRank);
+        for (let j = 0; j < ordered.length; j++) days.push(ordered[j]);
+      }
     }
 
     const shirtNames = normalizeNames(options.shirtNames, S, defaultShirtName);
@@ -750,6 +1109,7 @@
             day: d,
             dayName: dayNames[d],
             holiday: true,
+            locked: false,
             shirt: null,
             pant: null,
             combo: null,
@@ -757,11 +1117,13 @@
           });
         } else {
           const item = days[workIdx++];
+          const locked = lockInfo.map.has(slotKey(w, d));
           slots.push({
             week: w,
             day: d,
             dayName: dayNames[d],
             holiday: false,
+            locked: locked,
             shirt: item.shirt,
             pant: item.pant,
             combo: comboLabel(shirtNames[item.shirt], pantNames[item.pant]),
@@ -792,6 +1154,9 @@
       holidayCount: holidayInfo.applied.length,
       holidays: holidayInfo.applied,
       ignoredHolidays: holidayInfo.ignored,
+      lockCount: lockInfo.applied.length,
+      locks: lockInfo.applied,
+      ignoredLocks: lockInfo.ignored,
       repeats: extractRepeats(slots),
       repeatDays: stats.repeatDays,
       shirtWear: stats.shirtWear,
@@ -844,6 +1209,7 @@
           day: slot.day,
           dayName: slot.dayName,
           holiday: slot.holiday,
+          locked: !!slot.locked,
           shirtIndex: slot.holiday ? null : slot.shirt,
           pantIndex: slot.holiday ? null : slot.pant,
           shirtName: slot.holiday ? null : plan.shirtNames[slot.shirt],
@@ -859,7 +1225,7 @@
   }
 
   function toCsv(plan) {
-    const lines = ["Week,Day,Outfit,Holiday,Repeat of"];
+    const lines = ["Week,Day,Outfit,Holiday,Locked,Repeat of"];
     const rows = timetableRows(plan);
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -871,6 +1237,7 @@
             c.dayName,
             csvEscape(c.holiday ? "" : c.combo),
             c.holiday ? "Holiday" : "",
+            c.locked ? "Locked" : "",
             csvEscape(c.repeatOf || ""),
           ].join(",")
         );
@@ -897,6 +1264,7 @@
           line += "Holiday";
         } else {
           line += c.combo;
+          if (c.locked) line += " (locked)";
           if (c.repeatLabel) line += " — " + c.repeatLabel;
         }
         lines.push(line);
@@ -927,6 +1295,9 @@
       ".";
     if (plan.holidayCount) {
       repeatLine += " Holidays: " + plan.holidayCount + ".";
+    }
+    if (plan.lockCount) {
+      repeatLine += " Locked days: " + plan.lockCount + ".";
     }
     lines.push(repeatLine);
     if (plan.repeats && plan.repeats.length) {
@@ -960,5 +1331,9 @@
     slotRef: slotRef,
     repeatLabel: repeatLabel,
     parseHolidays: parseHolidays,
+    parseLocks: parseLocks,
+    listDayAlternatives: listDayAlternatives,
+    cycleDayPair: cycleDayPair,
+    slotKey: slotKey,
   };
 });

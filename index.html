@@ -311,30 +311,44 @@
       color: #e4efdf;
       white-space: nowrap;
     }
-    .timetable td { background: #121c16; min-width: 8.2rem; padding: 4px; vertical-align: stretch; }
-    .slot-btn {
+    .timetable td { background: #121c16; min-width: 8.4rem; padding: 4px; vertical-align: stretch; }
+    .slot {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: 1fr auto;
+      gap: 4px 6px;
+      width: 100%;
+      height: 100%;
+      min-height: 6.2rem;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+    }
+    .slot:hover { background: #1c2e24; border-color: #3d5846; }
+    .slot.holiday {
+      background: #2a2418;
+      border-color: #6a5a3a;
+    }
+    .slot.holiday:hover { background: #352d1e; }
+    .slot.locked { background: #17241c; }
+    .holiday-toggle {
+      grid-column: 1;
+      grid-row: 1;
       display: flex;
       flex-direction: column;
       align-items: flex-start;
       justify-content: flex-start;
       width: 100%;
       height: 100%;
-      min-height: 5.2rem;
       text-align: left;
       background: transparent;
-      border: 1px solid transparent;
+      border: 0;
       color: inherit;
-      padding: 8px 8px 6px;
-      border-radius: 8px;
+      padding: 2px;
+      border-radius: 6px;
     }
-    .slot-btn:hover { background: #1c2e24; border-color: #3d5846; }
-    .slot-btn.holiday {
-      background: #2a2418;
-      border-color: #6a5a3a;
-    }
-    .slot-btn.holiday:hover { background: #352d1e; }
-    .slot-btn.repeat { }
     .combo { font-weight: 650; color: #edf4e7; line-height: 1.35; }
+    .combo-row { display: flex; align-items: flex-start; gap: 6px; }
     .repeat-of {
       display: block;
       font-size: 11px;
@@ -353,10 +367,43 @@
       display: block;
       font-size: 10px;
       color: #7d8c7a;
-      margin-top: auto;
-      padding-top: 8px;
+      margin-top: 8px;
     }
-    .slot-btn.holiday .slot-affordance { color: #cbb896; }
+    .slot.holiday .slot-affordance { color: #cbb896; }
+    .lock-btn {
+      grid-column: 2;
+      grid-row: 1;
+      align-self: start;
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid #8aa889;
+      background: #1c2f23;
+      color: var(--accent);
+      border-radius: 8px;
+      padding: 0;
+    }
+    .lock-btn:hover { background: #2c4132; border-color: #b0d6af; }
+    .lock-btn svg { display: block; }
+    .slot-tools {
+      grid-column: 1 / -1;
+      grid-row: 2;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+    }
+    .day-shuffle {
+      font-size: 11px;
+      font-weight: 650;
+      padding: 5px 9px;
+      border-radius: 8px;
+      border: 1px solid #58705d;
+      background: #1c2b21;
+      color: #dcebd6;
+    }
+    .day-shuffle:hover { background: #2c4132; border-color: #88a88a; }
     .timetable-hint {
       font-size: 12px;
       color: var(--muted);
@@ -388,15 +435,17 @@
       border-top: 1px solid #2a3d31;
     }
     .week-card li:first-child { border-top: 0; }
-    .week-card .slot-btn {
+    .week-card .slot {
+      min-height: 0;
+      padding: 8px 4px;
+      border-radius: 10px;
+    }
+    .week-card .holiday-toggle {
       flex-direction: row;
       flex-wrap: wrap;
       align-items: flex-start;
       justify-content: space-between;
-      gap: 10px 12px;
-      min-height: 0;
-      padding: 10px 4px;
-      border-radius: 10px;
+      gap: 8px 12px;
     }
     .card-day {
       font-size: 11px;
@@ -408,7 +457,7 @@
       padding-top: 2px;
     }
     .card-outfit { text-align: right; flex: 1; }
-    .week-card .slot-affordance { width: 100%; text-align: right; padding-top: 4px; }
+    .week-card .slot-affordance { width: 100%; text-align: right; margin-top: 4px; }
 
     .stats-grid {
       display: grid;
@@ -490,7 +539,7 @@
         background-image: none;
         color: #122018;
       }
-      header, form.planner, .result-actions, footer, .status, .eyebrow, .slot-affordance, .timetable-hint {
+      header, form.planner, .result-actions, footer, .status, .eyebrow, .slot-affordance, .timetable-hint, .slot-tools, .day-shuffle {
         display: none !important;
       }
       .shell { padding: 0; max-width: none; }
@@ -507,11 +556,13 @@
       .intro p, .summary, .repeat-stats p, .repeat-list, .wear-table, .combo { color: #122018; }
       .lead, .week-card h3, .repeat-of { color: #33463a; }
       .holiday-label { color: #6a4f16; }
-      .timetable th, .timetable td, .wear-table th, .wear-table td, .week-card, .slot-btn, .slot-btn.holiday {
+      .timetable th, .timetable td, .wear-table th, .wear-table td, .week-card, .slot, .slot.holiday, .slot.locked {
         border-color: #bbb;
         background: #fff;
       }
-      .slot-btn { min-height: 0; padding: 6px; }
+      .slot { min-height: 0; padding: 6px; }
+      .lock-btn { border: 0; background: transparent; color: #122018; }
+      .slot.locked .combo::after { content: " (locked)"; font-weight: 500; }
       .desktop-table { display: table !important; }
       .week-cards { display: none !important; }
       .stats-grid { break-inside: avoid; }
@@ -534,7 +585,7 @@
       <p>
         Tell us how many shirts and pants you have, and for how many work weeks.
         We’ll draw up a timetable that uses every unique pairing before repeating any,
-        and spreads the wear evenly. You can tap a day to mark a holiday.
+        and spreads the wear evenly. You can mark a holiday, or shuffle a single day and lock it.
       </p>
     </section>
 
@@ -592,11 +643,12 @@
         <button type="button" class="ghost" id="download-csv">Download CSV</button>
         <button type="button" class="ghost" id="print-plan">Print</button>
         <button type="button" class="ghost" id="clear-holidays" hidden>Clear holidays</button>
+        <button type="button" class="ghost" id="clear-locks" hidden>Clear locks</button>
         <span class="copy-status" id="copy-status" role="status"></span>
       </div>
 
       <h2>Timetable</h2>
-      <p class="timetable-hint" id="timetable-hint">Tap a day to mark it as a holiday. The plan is then recalculated for the remaining working days.</p>
+      <p class="timetable-hint" id="timetable-hint">Use Holiday to mark a day off, or Shuffle to try a different outfit on that day and lock it. Tap the lock to unlock. The rest of the plan is then recalculated.</p>
       <div class="timetable-wrap" id="timetable-wrap"></div>
 
       <div class="stats-grid">

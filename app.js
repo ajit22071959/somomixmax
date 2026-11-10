@@ -25,6 +25,7 @@
   var csvBtn = document.getElementById("download-csv");
   var printBtn = document.getElementById("print-plan");
   var clearHolidaysBtn = document.getElementById("clear-holidays");
+  var clearLocksBtn = document.getElementById("clear-locks");
   var copyStatus = document.getElementById("copy-status");
   var liveStatus = document.getElementById("live-status");
 
@@ -33,6 +34,7 @@
   var shirtNameValues = [];
   var pantNameValues = [];
   var holidays = [];
+  var locks = [];
 
   function toInt(value) {
     var n = Number(value);
@@ -63,22 +65,119 @@
     return -1;
   }
 
-  function toggleHoliday(week, day) {
-    var idx = holidayIndex(week, day);
-    if (idx >= 0) holidays.splice(idx, 1);
-    else holidays.push({ week: week, day: day });
-    makePlan(
-      currentSeed,
-      idx >= 0 ? "Holiday removed. Plan recalculated." : "Holiday marked. Plan recalculated."
-    );
-    var sel = '.slot-btn[data-week="' + week + '"][data-day="' + day + '"]';
+  function normalizeLockMarks(list) {
+    var out = [];
+    var seen = {};
+    if (!Array.isArray(list)) return out;
+    for (var i = 0; i < list.length; i++) {
+      var raw = list[i] || {};
+      if (!Number.isInteger(raw.week) || !Number.isInteger(raw.day)) continue;
+      if (!Number.isInteger(raw.shirt) || !Number.isInteger(raw.pant)) continue;
+      var key = raw.week + ":" + raw.day;
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push({ week: raw.week, day: raw.day, shirt: raw.shirt, pant: raw.pant });
+    }
+    return out;
+  }
+
+  function pruneLocksForWardrobe(shirts, pants) {
+    if (!Number.isInteger(shirts) || !Number.isInteger(pants)) return;
+    var next = [];
+    for (var i = 0; i < locks.length; i++) {
+      var lock = locks[i];
+      if (lock.shirt >= 0 && lock.shirt < shirts && lock.pant >= 0 && lock.pant < pants) {
+        next.push(lock);
+      }
+    }
+    locks = next;
+  }
+
+  function lockIndex(week, day) {
+    for (var i = 0; i < locks.length; i++) {
+      if (locks[i].week === week && locks[i].day === day) return i;
+    }
+    return -1;
+  }
+
+  function removeLock(week, day) {
+    var idx = lockIndex(week, day);
+    if (idx >= 0) locks.splice(idx, 1);
+    return idx >= 0;
+  }
+
+  function setLock(week, day, shirt, pant) {
+    removeLock(week, day);
+    locks.push({ week: week, day: day, shirt: shirt, pant: pant });
+  }
+
+  function slotFromPlan(week, day) {
+    if (!currentPlan || !currentPlan.slots) return null;
+    for (var i = 0; i < currentPlan.slots.length; i++) {
+      if (currentPlan.slots[i].week === week && currentPlan.slots[i].day === day) {
+        return currentPlan.slots[i];
+      }
+    }
+    return null;
+  }
+
+  function focusSlotControl(week, day, selector) {
+    var sel = '.slot[data-week="' + week + '"][data-day="' + day + '"] ' + selector;
     var buttons = document.querySelectorAll(sel);
     for (var b = 0; b < buttons.length; b++) {
       if (buttons[b].offsetParent !== null) {
         buttons[b].focus();
-        break;
+        return;
       }
     }
+  }
+
+  var LOCK_SVG =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path fill="currentColor" d="M8 1.5A2.5 2.5 0 005.5 4v2h-1A1.5 1.5 0 003 7.5v6A1.5 1.5 0 004.5 15h7a1.5 1.5 0 001.5-1.5v-6A1.5 1.5 0 0011.5 6h-1V4A2.5 2.5 0 008 1.5zm-1 2.5A1 1 0 018 3a1 1 0 011 1v2H7V4z"/></svg>';
+
+  function toggleHoliday(week, day) {
+    var idx = holidayIndex(week, day);
+    if (idx >= 0) {
+      holidays.splice(idx, 1);
+    } else {
+      holidays.push({ week: week, day: day });
+      removeLock(week, day);
+    }
+    makePlan(
+      currentSeed,
+      idx >= 0 ? "Holiday removed. Plan recalculated." : "Holiday marked. Plan recalculated."
+    );
+    focusSlotControl(week, day, ".holiday-toggle");
+  }
+
+  function shuffleDay(week, day) {
+    var slot = slotFromPlan(week, day);
+    if (!slot || slot.holiday) return;
+    var options = readInputs();
+    var next = Somo.cycleDayPair(options, week, day, slot.shirt, slot.pant);
+    if (!next.changed) {
+      liveStatus.textContent = "This day has no other combination.";
+      focusSlotControl(week, day, ".day-shuffle");
+      return;
+    }
+    setLock(week, day, next.shirt, next.pant);
+    var combo = Somo.comboLabel(
+      options.shirtNames && options.shirtNames[next.shirt] ? String(options.shirtNames[next.shirt]).trim() || Somo.defaultShirtName(next.shirt) : Somo.defaultShirtName(next.shirt),
+      options.pantNames && options.pantNames[next.pant] ? String(options.pantNames[next.pant]).trim() || Somo.defaultPantName(next.pant) : Somo.defaultPantName(next.pant)
+    );
+    // Use the plan's normalize via a temporary message; makePlan will apply names properly.
+    makePlan(currentSeed, "This day is locked to a new outfit. The rest of the plan was recalculated.");
+    var updated = slotFromPlan(week, day);
+    if (updated && updated.combo) {
+      liveStatus.textContent = "This day is locked to " + updated.combo + ". The rest of the plan was recalculated.";
+    }
+    focusSlotControl(week, day, ".day-shuffle");
+  }
+
+  function unlockDay(week, day) {
+    if (!removeLock(week, day)) return;
+    makePlan(currentSeed, "Day unlocked. Plan recalculated.");
+    focusSlotControl(week, day, ".holiday-toggle");
   }
 
   function readInputs() {
@@ -91,6 +190,7 @@
       pantNames: collectNames(pantNamesBox, pantNameValues),
       seed: currentSeed,
       holidays: holidays.slice(),
+      locks: locks.slice(),
     };
   }
 
@@ -201,6 +301,7 @@
       pantNameValues = Array.isArray(data.pantNames) ? data.pantNames.slice() : [];
       currentSeed = Number.isInteger(data.seed) && data.seed >= 0 ? data.seed : 0;
       holidays = normalizeHolidayMarks(data.holidays);
+      locks = normalizeLockMarks(data.locks);
       return true;
     } catch (err) {
       return false;
@@ -238,41 +339,77 @@
     return word.charAt(0).toUpperCase() + word.slice(1);
   }
 
-  function fillSlotButton(btn, cell) {
+  function fillSlotCell(cell, withDayName) {
     var ref = Somo.slotRef(cell.week, cell.dayName);
-    btn.type = "button";
-    btn.className = "slot-btn" + (cell.holiday ? " holiday" : "") + (cell.repeatOf ? " repeat" : "");
-    btn.setAttribute("data-week", String(cell.week));
-    btn.setAttribute("data-day", String(cell.day));
-    btn.setAttribute("aria-pressed", cell.holiday ? "true" : "false");
-    btn.replaceChildren();
+    var wrap = document.createElement("div");
+    wrap.className = "slot" + (cell.holiday ? " holiday" : "") + (cell.locked ? " locked" : "");
+    wrap.setAttribute("data-week", String(cell.week));
+    wrap.setAttribute("data-day", String(cell.day));
+
+    var holBtn = document.createElement("button");
+    holBtn.type = "button";
+    holBtn.className = "holiday-toggle";
+    holBtn.setAttribute("aria-pressed", cell.holiday ? "true" : "false");
+    if (withDayName) {
+      var day = document.createElement("span");
+      day.className = "card-day";
+      day.textContent = cell.dayName;
+      holBtn.appendChild(day);
+    }
+    var body = document.createElement("span");
+    body.className = withDayName ? "card-outfit" : "slot-body";
     if (cell.holiday) {
       var label = document.createElement("span");
       label.className = "holiday-label";
       label.textContent = "Holiday";
-      btn.appendChild(label);
-      btn.setAttribute("aria-label", ref + ", holiday. Click to remove this holiday.");
+      body.appendChild(label);
+      holBtn.setAttribute("aria-label", ref + ", holiday. Click to remove this holiday.");
     } else {
       var combo = document.createElement("span");
       combo.className = "combo";
       combo.textContent = cell.combo;
-      btn.appendChild(combo);
+      body.appendChild(combo);
       if (cell.repeatLabel) {
         var rep = document.createElement("span");
         rep.className = "repeat-of";
         rep.textContent = cell.repeatLabel;
-        btn.appendChild(rep);
+        body.appendChild(rep);
       }
       var aria = ref + ", " + cell.combo;
+      if (cell.locked) aria += ", locked";
       if (cell.repeatLabel) aria += ", " + cell.repeatLabel;
       aria += ". Click to mark as a holiday.";
-      btn.setAttribute("aria-label", aria);
+      holBtn.setAttribute("aria-label", aria);
     }
     var tip = document.createElement("span");
     tip.className = "slot-affordance";
-    tip.textContent = cell.holiday ? "Tap to undo" : "Tap to mark holiday";
-    btn.appendChild(tip);
-    return btn;
+    tip.textContent = cell.holiday ? "Remove holiday" : "Mark holiday";
+    body.appendChild(tip);
+    holBtn.appendChild(body);
+    wrap.appendChild(holBtn);
+
+    if (cell.locked) {
+      var lockBtn = document.createElement("button");
+      lockBtn.type = "button";
+      lockBtn.className = "lock-btn";
+      lockBtn.setAttribute("aria-label", ref + " is locked to " + cell.combo + ". Click to unlock.");
+      lockBtn.title = "Unlock this day";
+      lockBtn.innerHTML = LOCK_SVG;
+      wrap.appendChild(lockBtn);
+    }
+
+    var tools = document.createElement("div");
+    tools.className = "slot-tools";
+    if (!cell.holiday) {
+      var shuf = document.createElement("button");
+      shuf.type = "button";
+      shuf.className = "day-shuffle";
+      shuf.textContent = "Shuffle";
+      shuf.setAttribute("aria-label", "Shuffle " + ref + " to a different outfit and lock it.");
+      tools.appendChild(shuf);
+    }
+    wrap.appendChild(tools);
+    return wrap;
   }
 
   function renderTimetable(plan) {
@@ -283,7 +420,7 @@
     table.className = "timetable desktop-table";
     var cap = document.createElement("caption");
     cap.className = "sr-only";
-    cap.textContent = "Outfit timetable by week and day. Click a day to mark or unmark it as a holiday.";
+    cap.textContent = "Outfit timetable by week and day. Use Holiday to mark a day off, or Shuffle to lock a different outfit on that day.";
     table.appendChild(cap);
 
     var thead = document.createElement("thead");
@@ -313,7 +450,8 @@
         var td = document.createElement("td");
         td.setAttribute("data-day", cell.dayName);
         if (cell.holiday) td.className = "is-holiday";
-        td.appendChild(fillSlotButton(document.createElement("button"), cell));
+        if (cell.locked) td.className = (td.className ? td.className + " " : "") + "is-locked";
+        td.appendChild(fillSlotCell(cell, false));
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
@@ -333,18 +471,7 @@
       for (var c = 0; c < rows[w].cells.length; c++) {
         var item = rows[w].cells[c];
         var li = document.createElement("li");
-        var btn = fillSlotButton(document.createElement("button"), item);
-        var day = document.createElement("span");
-        day.className = "card-day";
-        day.textContent = item.dayName;
-        var outfit = document.createElement("span");
-        outfit.className = "card-outfit";
-        while (btn.firstChild && !(btn.firstChild.classList && btn.firstChild.classList.contains("slot-affordance"))) {
-          outfit.appendChild(btn.firstChild);
-        }
-        btn.insertBefore(day, btn.firstChild);
-        btn.insertBefore(outfit, day.nextSibling);
-        li.appendChild(btn);
+        li.appendChild(fillSlotCell(item, true));
         list.appendChild(li);
       }
       section.appendChild(list);
@@ -389,6 +516,13 @@
     } else {
       cover += "The plan covers " + plan.workingDays + " " + dayWord + ".";
     }
+    if (plan.lockCount) {
+      cover +=
+        " " +
+        plan.lockCount +
+        (plan.lockCount === 1 ? " day is" : " days are") +
+        " locked.";
+    }
     p1.textContent = cover;
     var p2 = document.createElement("p");
     p2.textContent =
@@ -430,16 +564,29 @@
           : n + " holiday marks are outside the current period or are not work days, so they were ignored.";
       repeatEl.appendChild(note);
     }
+    if (plan.ignoredLocks && plan.ignoredLocks.length) {
+      var lockNote = document.createElement("p");
+      lockNote.className = "ignored-note";
+      var ln = plan.ignoredLocks.length;
+      lockNote.textContent =
+        ln === 1
+          ? "1 lock was ignored because that day is a holiday, is outside the current period, or no longer matches the wardrobe."
+          : ln + " locks were ignored because those days are holidays, are outside the current period, or no longer match the wardrobe.";
+      repeatEl.appendChild(lockNote);
+    }
 
     results.hidden = false;
     shuffleBtn.disabled = plan.workingDays < 1;
     if (clearHolidaysBtn) clearHolidaysBtn.hidden = holidays.length === 0;
+    if (clearLocksBtn) clearLocksBtn.hidden = locks.length === 0;
     liveStatus.textContent = message || plan.summary;
   }
 
   function makePlan(seed, message) {
     var options = readInputs();
     options.seed = seed;
+    pruneLocksForWardrobe(options.shirts, options.pants);
+    options.locks = locks.slice();
     var errors = Somo.validateInputs(options);
     showErrors(errors);
     if (errors.length) {
@@ -474,8 +621,15 @@
     }
     var startFrom = currentSeed + 1;
     var signatureDays = currentPlan ? currentPlan.days : [];
+    if (currentPlan && currentPlan.lockCount && currentPlan.lockCount >= currentPlan.workingDays && currentPlan.workingDays > 0) {
+      liveStatus.textContent = "Every working day is locked, so the plan cannot be shuffled. Unlock a day first.";
+      return;
+    }
     var seed = Somo.findShuffledSeed(options, signatureDays, startFrom, 48);
-    var plan = makePlan(seed, "Shuffled to a different plan of the same quality.");
+    var message = locks.length
+      ? "Shuffled the unlocked days. Locked days were kept."
+      : "Shuffled to a different plan of the same quality.";
+    var plan = makePlan(seed, message);
     if (plan && currentPlan && Somo.daySignature(plan.days) === Somo.daySignature(signatureDays) && signatureDays.length) {
       liveStatus.textContent = "This wardrobe only has one arrangement of this quality.";
     }
@@ -540,13 +694,37 @@
     window.print();
   });
 
+  function slotCoords(el) {
+    var root = el.closest ? el.closest(".slot") : null;
+    if (!root) return null;
+    var week = Number(root.getAttribute("data-week"));
+    var day = Number(root.getAttribute("data-day"));
+    if (!Number.isInteger(week) || !Number.isInteger(day)) return null;
+    return { week: week, day: day };
+  }
+
   timetableWrap.addEventListener("click", function (event) {
-    var btn = event.target.closest ? event.target.closest(".slot-btn") : null;
-    if (!btn || !timetableWrap.contains(btn)) return;
-    var week = Number(btn.getAttribute("data-week"));
-    var day = Number(btn.getAttribute("data-day"));
-    if (!Number.isInteger(week) || !Number.isInteger(day)) return;
-    toggleHoliday(week, day);
+    var target = event.target;
+    if (!target.closest) return;
+    var shuffleEl = target.closest(".day-shuffle");
+    if (shuffleEl && timetableWrap.contains(shuffleEl)) {
+      event.preventDefault();
+      var shufAt = slotCoords(shuffleEl);
+      if (shufAt) shuffleDay(shufAt.week, shufAt.day);
+      return;
+    }
+    var lockEl = target.closest(".lock-btn");
+    if (lockEl && timetableWrap.contains(lockEl)) {
+      event.preventDefault();
+      var lockAt = slotCoords(lockEl);
+      if (lockAt) unlockDay(lockAt.week, lockAt.day);
+      return;
+    }
+    var holEl = target.closest(".holiday-toggle");
+    if (holEl && timetableWrap.contains(holEl)) {
+      var holAt = slotCoords(holEl);
+      if (holAt) toggleHoliday(holAt.week, holAt.day);
+    }
   });
 
   if (clearHolidaysBtn) {
@@ -554,6 +732,14 @@
       if (!holidays.length) return;
       holidays = [];
       makePlan(currentSeed, "Holidays cleared. Plan recalculated.");
+    });
+  }
+
+  if (clearLocksBtn) {
+    clearLocksBtn.addEventListener("click", function () {
+      if (!locks.length) return;
+      locks = [];
+      makePlan(currentSeed, "Locks cleared. Plan recalculated.");
     });
   }
 

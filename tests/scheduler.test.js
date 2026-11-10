@@ -288,7 +288,7 @@ describe("names, timetable, csv", () => {
     assert.equal(rows[0].cells[0].combo, "A + X");
     assert.equal(rows[0].cells[0].holiday, false);
     const csv = Somo.toCsv(p);
-    assert.match(csv, /^Week,Day,Outfit,Holiday,Repeat of\n/);
+    assert.match(csv, /^Week,Day,Outfit,Holiday,Locked,Repeat of\n/);
     assert.equal(csv.trim().split("\n").length, 6);
     assert.match(Somo.toCsv(Somo.generateSchedule({
       shirts: 1, pants: 1, weeks: 1, daysPerWeek: 1,
@@ -388,8 +388,8 @@ describe("combo labels and repeat references", () => {
       pantNames: ["X", "Y"],
     });
     const csv = Somo.toCsv(p);
-    assert.match(csv, /^Week,Day,Outfit,Holiday,Repeat of\n/);
-    assert.match(csv, /A \+ X,,Week 1 Mon/);
+    assert.match(csv, /^Week,Day,Outfit,Holiday,Locked,Repeat of\n/);
+    assert.match(csv, /A \+ X,,,Week 1 Mon/);
     const text = Somo.toPlainText(p);
     assert.match(text, /A \+ X — Repeat of Week 1 Mon/);
     assert.match(text, /Repeat list/);
@@ -549,5 +549,205 @@ describe("holidays", () => {
     assert.equal(b.holidayCount, 1);
     assert.notEqual(Somo.daySignature(a.days), Somo.daySignature(b.days));
     assert.equal(b.slots[0].holiday, true);
+  });
+});
+
+describe("locks and day shuffle", () => {
+  it("ignores locks that are invalid, on holidays, or out of the wardrobe", () => {
+    const info = Somo.parseLocks(
+      [
+        { week: 1, day: 0, shirt: 0, pant: 0 },
+        { week: 1, day: 0, shirt: 1, pant: 1 }, // duplicate slot
+        { week: 1, day: 2, shirt: 0, pant: 0 }, // Wednesday holiday
+        { week: 9, day: 0, shirt: 0, pant: 0 },
+        { week: 2, day: 0, shirt: 9, pant: 0 },
+        { week: 2, day: 1, shirt: 0, pant: 9 },
+        { foo: 1 },
+      ],
+      3,
+      5,
+      2,
+      2,
+      new Set(["1:2"])
+    );
+    assert.deepEqual(
+      info.applied.map((l) => ({ week: l.week, day: l.day, shirt: l.shirt, pant: l.pant })),
+      [{ week: 1, day: 0, shirt: 0, pant: 0 }]
+    );
+    assert.equal(info.ignored.length, 5);
+  });
+
+  it("keeps a locked pair in place and fills the rest evenly", () => {
+    const p = Somo.generateSchedule({
+      shirts: 5,
+      pants: 3,
+      weeks: 3,
+      daysPerWeek: 5,
+      locks: [{ week: 1, day: 0, shirt: 4, pant: 2 }],
+    });
+    assert.equal(p.lockCount, 1);
+    assert.equal(p.slots[0].locked, true);
+    assert.equal(p.slots[0].shirt, 4);
+    assert.equal(p.slots[0].pant, 2);
+    assert.equal(p.slots[0].combo, "Shirt 5 + Pant 3");
+    assert.equal(p.workingDays, 15);
+    assert.equal(p.repeatDays, 0);
+    assert.ok(Somo.countsDifferByAtMostOne(p.shirtWear));
+    assert.ok(Somo.countsDifferByAtMostOne(p.pantWear));
+    const stats = Somo.analyze(p.days, 5, 3);
+    assert.ok(Somo.countsDifferByAtMostOne(stats.pairCountValues));
+    assert.equal(p.shirtConsec, 0);
+    assert.equal(p.slots[1].locked, false);
+    const csv = Somo.toCsv(p);
+    assert.match(csv, /^Week,Day,Outfit,Holiday,Locked,Repeat of\n/);
+    assert.match(csv, /1,Mon,Shirt 5 \+ Pant 3,,Locked,/);
+    assert.match(Somo.toPlainText(p), /Shirt 5 \+ Pant 3 \(locked\)/);
+    assert.match(Somo.toPlainText(p), /Locked days: 1/);
+  });
+
+  it("avoids a locked shirt on the following working day when possible", () => {
+    const p = Somo.generateSchedule({
+      shirts: 5,
+      pants: 3,
+      weeks: 2,
+      daysPerWeek: 5,
+      locks: [{ week: 1, day: 0, shirt: 0, pant: 0 }],
+    });
+    assert.notEqual(p.slots[1].shirt, 0);
+    assert.equal(p.shirtConsec, 0);
+  });
+
+  it("drops a lock when that day is marked as a holiday", () => {
+    const p = Somo.generateSchedule({
+      shirts: 4,
+      pants: 3,
+      weeks: 2,
+      daysPerWeek: 5,
+      holidays: [{ week: 1, day: 0 }],
+      locks: [{ week: 1, day: 0, shirt: 0, pant: 0 }],
+    });
+    assert.equal(p.slots[0].holiday, true);
+    assert.equal(p.slots[0].locked, false);
+    assert.equal(p.slots[0].shirt, null);
+    assert.equal(p.lockCount, 0);
+    assert.equal(p.ignoredLocks.length, 1);
+    assert.equal(p.workingDays, 9);
+  });
+
+  it("still schedules when every working day is locked", () => {
+    const locks = [];
+    let shirt = 0;
+    for (let w = 1; w <= 1; w++) {
+      for (let d = 0; d < 5; d++) {
+        locks.push({ week: w, day: d, shirt: shirt, pant: 0 });
+        shirt = 1 - shirt;
+      }
+    }
+    const p = Somo.generateSchedule({
+      shirts: 2,
+      pants: 2,
+      weeks: 1,
+      daysPerWeek: 5,
+      locks,
+    });
+    assert.equal(p.lockCount, 5);
+    assert.equal(p.workingDays, 5);
+    assert.ok(p.slots.every((s) => s.locked && s.shirt === locks[s.day].shirt));
+  });
+
+  it("cycles a day to a different pair and plan-level shuffle keeps locks", () => {
+    const baseOptions = { shirts: 5, pants: 3, weeks: 3, daysPerWeek: 5 };
+    const original = Somo.generateSchedule(baseOptions);
+    const current = original.slots[0];
+    const next = Somo.cycleDayPair(baseOptions, 1, 0, current.shirt, current.pant);
+    assert.equal(next.changed, true);
+    assert.ok(next.shirt !== current.shirt || next.pant !== current.pant);
+
+    const second = Somo.cycleDayPair(baseOptions, 1, 0, next.shirt, next.pant);
+    assert.equal(second.changed, true);
+    assert.ok(second.shirt !== next.shirt || second.pant !== next.pant);
+
+    const seen = new Set();
+    let shirt = current.shirt;
+    let pant = current.pant;
+    for (let i = 0; i < 15; i++) {
+      const step = Somo.cycleDayPair(baseOptions, 1, 0, shirt, pant);
+      const key = step.shirt + ":" + step.pant;
+      seen.add(key);
+      shirt = step.shirt;
+      pant = step.pant;
+    }
+    assert.equal(seen.size, 15, "a full cycle visits every unique pair");
+    assert.equal(shirt, current.shirt);
+    assert.equal(pant, current.pant);
+
+    const lockedPlan = Somo.generateSchedule(
+      Object.assign({}, baseOptions, {
+        locks: [{ week: 1, day: 0, shirt: next.shirt, pant: next.pant }],
+      })
+    );
+    assert.equal(lockedPlan.slots[0].shirt, next.shirt);
+    assert.equal(lockedPlan.slots[0].pant, next.pant);
+
+    const seed = Somo.findShuffledSeed(
+      Object.assign({}, baseOptions, {
+        locks: [{ week: 1, day: 0, shirt: next.shirt, pant: next.pant }],
+      }),
+      lockedPlan.days,
+      1,
+      48
+    );
+    const shuffled = Somo.generateSchedule(
+      Object.assign({}, baseOptions, {
+        seed: seed,
+        locks: [{ week: 1, day: 0, shirt: next.shirt, pant: next.pant }],
+      })
+    );
+    assert.equal(shuffled.slots[0].shirt, next.shirt);
+    assert.equal(shuffled.slots[0].pant, next.pant);
+    assert.equal(shuffled.slots[0].locked, true);
+    assert.notEqual(Somo.daySignature(lockedPlan.days), Somo.daySignature(shuffled.days));
+    assert.equal(shuffled.shirtConsec, 0);
+  });
+
+  it("cannot change the only possible pair", () => {
+    const options = { shirts: 1, pants: 1, weeks: 1, daysPerWeek: 5 };
+    const step = Somo.cycleDayPair(options, 1, 0, 0, 0);
+    assert.equal(step.changed, false);
+    assert.equal(step.shirt, 0);
+    assert.equal(step.pant, 0);
+    const off = Somo.cycleDayPair(options, 1, 6, 0, 0);
+    assert.equal(off.changed, false);
+    assert.equal(off.reason, "not-working");
+  });
+
+  it("keeps repeat references accurate when some days are locked", () => {
+    const p = Somo.generateSchedule({
+      shirts: 2,
+      pants: 2,
+      weeks: 2,
+      daysPerWeek: 5,
+      locks: [{ week: 2, day: 0, shirt: 0, pant: 0 }],
+    });
+    const mon2 = p.slots.find((s) => s.week === 2 && s.day === 0);
+    assert.equal(mon2.locked, true);
+    assert.equal(mon2.shirt, 0);
+    assert.equal(mon2.pant, 0);
+    if (mon2.repeatOf) {
+      assert.match(mon2.repeatOf, /^Week 1 /);
+      assert.equal(mon2.repeatLabel || Somo.repeatLabel(mon2.repeatOf), "Repeat of " + mon2.repeatOf);
+    }
+    let recent = null;
+    for (const slot of p.slots) {
+      if (slot.holiday) continue;
+      if (slot.shirt === 0 && slot.pant === 0) {
+        if (slot === mon2) {
+          assert.equal(mon2.repeatOf, recent ? Somo.slotRef(recent.week, recent.dayName) : null);
+        }
+        recent = slot;
+      }
+    }
+    const rows = Somo.timetableRows(p);
+    assert.equal(rows[1].cells[0].locked, true);
   });
 });

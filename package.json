@@ -1,0 +1,8 @@
+{
+  "name": "somomixmax",
+  "private": true,
+  "description": "Mix and match office shirts and pants with as few repeated outfits as possible.",
+  "scripts": {
+    "test": "node --test tests/scheduler.test.js"
+  }
+}

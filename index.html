@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101715">
+  <meta name="description" content="Mix and match office shirts and pants over a work period, repeating a specific pair as little as possible.">
+  <title>somomixmax — outfit rotation</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2319221d'/%3E%3Crect x='6' y='8' width='14' height='16' rx='3' fill='%23b0d6af'/%3E%3Crect x='12' y='12' width='14' height='16' rx='3' fill='%2389b989'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #edf2e7;
+      --muted: #b0bdaf;
+      --accent: #b0d6af;
+      --paper: #19221d;
+      --line: #425747;
+      --tint: #25382c;
+      --shadow: 0 22px 65px #00000035;
+    }
+    * { box-sizing: border-box; }
+    html { background: #101715; }
+    body {
+      margin: 0;
+      background: #101715;
+      background-image:
+        radial-gradient(ellipse at 15% 0%, #1e3025 0, transparent 60%),
+        radial-gradient(ellipse at 100% 100%, #192822 0, transparent 55%);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      min-height: 100svh;
+      line-height: 1.5;
+    }
+    button, input { font: inherit; }
+    button {
+      cursor: pointer;
+      transition: background .18s, transform .18s, border-color .18s, filter .18s;
+    }
+    button:active { transform: translateY(1px); }
+    button:focus-visible,
+    input:focus-visible,
+    a:focus-visible {
+      outline: 3px solid #e8bc7b;
+      outline-offset: 4px;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .55;
+      transform: none;
+    }
+    ::selection { background: #597b58; color: #fff; }
+    input::selection { background: #597b58; color: #fff; }
+
+    .shell { max-width: 1080px; margin: auto; padding: 35px 28px 24px; }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 28px;
+    }
+    .brand {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      font-size: 23px;
+      font-weight: 700;
+      letter-spacing: -1px;
+    }
+    .brandmark {
+      width: 33px;
+      height: 33px;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .brandmark span {
+      position: absolute;
+      border-radius: 6px;
+      display: block;
+    }
+    .brandmark .a {
+      width: 18px;
+      height: 22px;
+      left: 2px;
+      top: 3px;
+      background: var(--accent);
+    }
+    .brandmark .b {
+      width: 18px;
+      height: 22px;
+      right: 2px;
+      bottom: 2px;
+      background: #89b989;
+    }
+    .brand small {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 1.6px;
+      text-transform: uppercase;
+      font-weight: 500;
+      margin-left: 4px;
+    }
+
+    .intro { text-align: center; margin-bottom: 28px; }
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .intro h1 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-weight: 400;
+      font-size: clamp(28px, 5vw, 36px);
+      letter-spacing: -1px;
+      margin: 10px 0;
+      color: #f1f2e6;
+    }
+    .intro p {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0 auto;
+      max-width: 46em;
+    }
+
+    form.planner,
+    .results,
+    .names-panel {
+      background: linear-gradient(145deg, #1c2820, var(--paper) 65%);
+      border: 1px solid #3b5040;
+      border-radius: 24px;
+      box-shadow: var(--shadow), inset 0 1px 0 #ffffff05;
+      padding: 24px 24px 22px;
+    }
+
+    form.planner { margin: 0 auto 22px; max-width: 820px; }
+    form.planner h2,
+    .results h2,
+    .names-panel h2 {
+      margin: 0 0 6px;
+      font-size: 16px;
+      color: #e9f0e4;
+    }
+    .lead {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 0 0 18px;
+      line-height: 1.5;
+    }
+
+    .count-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .count-grid label,
+    .name-grid label {
+      font-size: 12px;
+      color: #c0ceba;
+      display: block;
+    }
+    .count-grid input,
+    .name-grid input {
+      display: block;
+      margin-top: 7px;
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #59705c;
+      background: #0f1913;
+      border-radius: 9px;
+      color: #edf4e7;
+      box-shadow: inset 0 2px 5px #00000024;
+    }
+    .count-grid input:hover,
+    .name-grid input:hover { border-color: #8ea68a; }
+    .count-grid input:invalid,
+    .name-grid input:invalid { border-color: #df9c92; }
+    .field-hint {
+      display: block;
+      font-size: 11px;
+      color: var(--accent);
+      margin-top: 6px;
+      line-height: 1.4;
+    }
+
+    details.names {
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+    }
+    details.names > summary {
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 650;
+      color: #d9ecd3;
+      list-style: none;
+    }
+    details.names > summary::-webkit-details-marker { display: none; }
+    details.names > summary::before {
+      content: "";
+      display: inline-block;
+      width: 0.55em;
+      height: 0.55em;
+      border-right: 2px solid var(--accent);
+      border-bottom: 2px solid var(--accent);
+      transform: rotate(-45deg);
+      margin-right: 8px;
+      position: relative;
+      top: -2px;
+    }
+    details.names[open] > summary::before { transform: rotate(45deg); top: -1px; }
+    details.names .lead { margin-top: 8px; }
+    .name-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 22px;
+    }
+    .name-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-top: 20px;
+    }
+    .primary {
+      min-width: 148px;
+      background: var(--accent);
+      border: 1px solid transparent;
+      border-radius: 15px;
+      color: #102018;
+      font-weight: 700;
+      padding: 13px 22px;
+      box-shadow: 0 5px 20px #00000020;
+    }
+    .primary:hover:not(:disabled) { filter: brightness(1.09); }
+    .secondary,
+    .ghost {
+      border: 1px solid #58705d;
+      background: #1c2b21;
+      border-radius: 12px;
+      color: #dcebd6;
+      font-size: 13px;
+      font-weight: 650;
+      padding: 12px 16px;
+    }
+    .secondary:hover:not(:disabled),
+    .ghost:hover { background: #2c4132; border-color: #88a88a; }
+
+    .form-errors {
+      margin-top: 16px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: #2a1c1b;
+      border: 1px solid #a56a64;
+      color: #f3d4d0;
+      font-size: 13px;
+    }
+    .form-errors ul { margin: 0; padding-left: 1.15em; }
+    .form-errors[hidden] { display: none; }
+
+    .results { margin: 0 auto 22px; max-width: 1080px; }
+    .results[hidden] { display: none; }
+    .summary {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(18px, 3vw, 24px);
+      color: #f1f2e6;
+      margin: 0 0 16px;
+      line-height: 1.35;
+    }
+    .result-actions { margin: 0 0 22px; }
+    .copy-status {
+      font-size: 12px;
+      color: var(--accent);
+      min-height: 1.2em;
+    }
+
+    .timetable-wrap { overflow-x: auto; margin-bottom: 8px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .timetable th,
+    .timetable td,
+    .wear-table th,
+    .wear-table td {
+      border: 1px solid #3b5040;
+      padding: 10px 11px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .timetable thead th,
+    .wear-table thead th {
+      background: #101a14;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .timetable tbody th,
+    .wear-table tbody th {
+      background: #15201a;
+      font-weight: 650;
+      color: #e4efdf;
+      white-space: nowrap;
+    }
+    .timetable td { background: #121c16; min-width: 7.5rem; }
+    .piece { display: block; }
+    .piece.shirt { color: #edf4e7; font-weight: 650; }
+    .piece.pant { color: var(--muted); margin-top: 2px; }
+
+    .week-cards { display: none; }
+    .week-card {
+      border: 1px solid #3b5040;
+      border-radius: 16px;
+      background: #121c16;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+    }
+    .week-card h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+      color: var(--accent);
+    }
+    .week-card ol {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .week-card li {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+      padding: 8px 0;
+      border-top: 1px solid #2a3d31;
+    }
+    .week-card li:first-child { border-top: 0; }
+    .card-day {
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+      min-width: 3.2em;
+    }
+    .card-outfit { text-align: right; }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin: 20px 0;
+    }
+    .stat-card h2 { margin-bottom: 10px; }
+    .wear-table tbody td { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .repeat-stats {
+      border-top: 1px solid var(--line);
+      padding-top: 16px;
+    }
+    .repeat-stats p { margin: 0 0 8px; font-size: 14px; color: #dbe7d6; }
+    .repeat-stats p:last-child { margin-bottom: 0; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .status {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      min-height: 20px;
+      line-height: 1.6;
+      margin: 8px auto 0;
+      max-width: 650px;
+    }
+    footer {
+      text-align: center;
+      font-size: 11px;
+      color: #a2b09b;
+      margin: 20px 0 0;
+      letter-spacing: .3px;
+    }
+
+    @media (max-width: 800px) {
+      .shell { padding: 24px 16px 20px; }
+      .count-grid { grid-template-columns: 1fr 1fr; }
+      .name-columns,
+      .stats-grid { grid-template-columns: 1fr; }
+      .desktop-table { display: none; }
+      .week-cards { display: block; }
+      header { margin-bottom: 20px; }
+    }
+
+    @media (max-width: 480px) {
+      .count-grid { grid-template-columns: 1fr; }
+      .brand small { display: none; }
+      .primary, .secondary, .ghost { width: 100%; }
+      .actions { flex-direction: column; align-items: stretch; }
+    }
+
+    @media print {
+      html, body {
+        background: #fff;
+        background-image: none;
+        color: #122018;
+      }
+      header, form.planner, .result-actions, footer, .status, .eyebrow {
+        display: none !important;
+      }
+      .shell { padding: 0; max-width: none; }
+      .results {
+        display: block !important;
+        background: #fff;
+        border: 0;
+        box-shadow: none;
+        border-radius: 0;
+        padding: 0;
+      }
+      .intro { text-align: left; margin-bottom: 16px; }
+      .intro h1 { color: #122018; font-size: 22pt; margin: 0 0 6px; }
+      .intro p, .summary, .repeat-stats p, .wear-table, .piece { color: #122018; }
+      .piece.pant, .lead, .week-card h3 { color: #33463a; }
+      .timetable th, .timetable td, .wear-table th, .wear-table td, .week-card {
+        border-color: #bbb;
+        background: #fff;
+      }
+      .desktop-table { display: table !important; }
+      .week-cards { display: none !important; }
+      .stats-grid { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand">
+        <div class="brandmark" aria-hidden="true"><span class="a"></span><span class="b"></span></div>
+        somomixmax
+        <small>outfit rotation</small>
+      </div>
+    </header>
+
+    <section class="intro">
+      <div class="eyebrow">Office wardrobe planner</div>
+      <h1>Mix and match with fewer repeats</h1>
+      <p>
+        Tell us how many shirts and pants you have, and for how many work weeks.
+        We’ll draw up a timetable that uses every unique pairing before repeating any,
+        and spreads the wear evenly.
+      </p>
+    </section>
+
+    <form class="planner" id="planner-form" novalidate>
+      <h2>Your wardrobe</h2>
+      <p class="lead">Work weeks default to Monday–Friday. You can name each piece if you like.</p>
+
+      <div class="count-grid">
+        <label for="shirts">
+          Shirts
+          <input id="shirts" name="shirts" type="number" inputmode="numeric" min="1" max="50" value="5" required>
+        </label>
+        <label for="pants">
+          Pants
+          <input id="pants" name="pants" type="number" inputmode="numeric" min="1" max="50" value="3" required>
+        </label>
+        <label for="weeks">
+          Weeks
+          <input id="weeks" name="weeks" type="number" inputmode="numeric" min="1" max="52" value="3" required>
+        </label>
+        <label for="daysPerWeek">
+          Work days per week
+          <input id="daysPerWeek" name="daysPerWeek" type="number" inputmode="numeric" min="1" max="7" value="5" required>
+          <span class="field-hint" id="day-hint">Day names: Mon–Fri.</span>
+        </label>
+      </div>
+
+      <details class="names">
+        <summary>Name your clothes (optional)</summary>
+        <p class="lead">Leave a field blank to keep the default name, such as Shirt 1 or Pant 2.</p>
+        <div class="name-columns">
+          <div>
+            <h2>Shirts</h2>
+            <div class="name-grid" id="shirt-names"></div>
+          </div>
+          <div>
+            <h2>Pants</h2>
+            <div class="name-grid" id="pant-names"></div>
+          </div>
+        </div>
+      </details>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="make-plan">Make plan</button>
+        <button type="button" class="secondary" id="shuffle" disabled>Shuffle</button>
+      </div>
+
+      <div class="form-errors" id="form-errors" hidden tabindex="-1" role="alert"></div>
+    </form>
+
+    <section class="results" id="results" hidden>
+      <p class="summary" id="summary"></p>
+      <div class="actions result-actions">
+        <button type="button" class="ghost" id="copy-plan">Copy plan</button>
+        <button type="button" class="ghost" id="download-csv">Download CSV</button>
+        <button type="button" class="ghost" id="print-plan">Print</button>
+        <span class="copy-status" id="copy-status" role="status"></span>
+      </div>
+
+      <h2>Timetable</h2>
+      <div class="timetable-wrap" id="timetable-wrap"></div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <h2>Shirt wear</h2>
+          <div id="shirt-wear"></div>
+        </div>
+        <div class="stat-card">
+          <h2>Pant wear</h2>
+          <div id="pant-wear"></div>
+        </div>
+      </div>
+
+      <div class="repeat-stats" id="repeat-stats"></div>
+    </section>
+
+    <p class="status" id="live-status" role="status" aria-live="polite"></p>
+    <footer>somomixmax keeps your last inputs in this browser only.</footer>
+  </div>
+
+  <script src="scheduler.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

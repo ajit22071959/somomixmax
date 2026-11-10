@@ -311,10 +311,59 @@
       color: #e4efdf;
       white-space: nowrap;
     }
-    .timetable td { background: #121c16; min-width: 7.5rem; }
-    .piece { display: block; }
-    .piece.shirt { color: #edf4e7; font-weight: 650; }
-    .piece.pant { color: var(--muted); margin-top: 2px; }
+    .timetable td { background: #121c16; min-width: 8.2rem; padding: 4px; vertical-align: stretch; }
+    .slot-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
+      width: 100%;
+      height: 100%;
+      min-height: 5.2rem;
+      text-align: left;
+      background: transparent;
+      border: 1px solid transparent;
+      color: inherit;
+      padding: 8px 8px 6px;
+      border-radius: 8px;
+    }
+    .slot-btn:hover { background: #1c2e24; border-color: #3d5846; }
+    .slot-btn.holiday {
+      background: #2a2418;
+      border-color: #6a5a3a;
+    }
+    .slot-btn.holiday:hover { background: #352d1e; }
+    .slot-btn.repeat { }
+    .combo { font-weight: 650; color: #edf4e7; line-height: 1.35; }
+    .repeat-of {
+      display: block;
+      font-size: 11px;
+      color: var(--accent);
+      margin-top: 6px;
+      line-height: 1.35;
+    }
+    .holiday-label {
+      color: #e8bc7b;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      font-size: 11px;
+    }
+    .slot-affordance {
+      display: block;
+      font-size: 10px;
+      color: #7d8c7a;
+      margin-top: auto;
+      padding-top: 8px;
+    }
+    .slot-btn.holiday .slot-affordance { color: #cbb896; }
+    .timetable-hint {
+      font-size: 12px;
+      color: var(--muted);
+      margin: 10px 0 0;
+      line-height: 1.5;
+    }
+    .ignored-note { color: #e8bc7b; }
 
     .week-cards { display: none; }
     .week-card {
@@ -335,14 +384,20 @@
       padding: 0;
     }
     .week-card li {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: baseline;
-      padding: 8px 0;
+      padding: 0;
       border-top: 1px solid #2a3d31;
     }
     .week-card li:first-child { border-top: 0; }
+    .week-card .slot-btn {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px 12px;
+      min-height: 0;
+      padding: 10px 4px;
+      border-radius: 10px;
+    }
     .card-day {
       font-size: 11px;
       letter-spacing: .08em;
@@ -350,8 +405,10 @@
       color: var(--muted);
       font-weight: 700;
       min-width: 3.2em;
+      padding-top: 2px;
     }
-    .card-outfit { text-align: right; }
+    .card-outfit { text-align: right; flex: 1; }
+    .week-card .slot-affordance { width: 100%; text-align: right; padding-top: 4px; }
 
     .stats-grid {
       display: grid;
@@ -367,6 +424,18 @@
       padding-top: 16px;
     }
     .repeat-stats p { margin: 0 0 8px; font-size: 14px; color: #dbe7d6; }
+    .repeat-stats h3 {
+      margin: 14px 0 8px;
+      font-size: 13px;
+      color: #e9f0e4;
+    }
+    .repeat-list {
+      margin: 0;
+      padding-left: 1.15em;
+      font-size: 13px;
+      color: #dbe7d6;
+      line-height: 1.55;
+    }
     .repeat-stats p:last-child { margin-bottom: 0; }
 
     .sr-only {
@@ -421,7 +490,7 @@
         background-image: none;
         color: #122018;
       }
-      header, form.planner, .result-actions, footer, .status, .eyebrow {
+      header, form.planner, .result-actions, footer, .status, .eyebrow, .slot-affordance, .timetable-hint {
         display: none !important;
       }
       .shell { padding: 0; max-width: none; }
@@ -435,12 +504,14 @@
       }
       .intro { text-align: left; margin-bottom: 16px; }
       .intro h1 { color: #122018; font-size: 22pt; margin: 0 0 6px; }
-      .intro p, .summary, .repeat-stats p, .wear-table, .piece { color: #122018; }
-      .piece.pant, .lead, .week-card h3 { color: #33463a; }
-      .timetable th, .timetable td, .wear-table th, .wear-table td, .week-card {
+      .intro p, .summary, .repeat-stats p, .repeat-list, .wear-table, .combo { color: #122018; }
+      .lead, .week-card h3, .repeat-of { color: #33463a; }
+      .holiday-label { color: #6a4f16; }
+      .timetable th, .timetable td, .wear-table th, .wear-table td, .week-card, .slot-btn, .slot-btn.holiday {
         border-color: #bbb;
         background: #fff;
       }
+      .slot-btn { min-height: 0; padding: 6px; }
       .desktop-table { display: table !important; }
       .week-cards { display: none !important; }
       .stats-grid { break-inside: avoid; }
@@ -463,7 +534,7 @@
       <p>
         Tell us how many shirts and pants you have, and for how many work weeks.
         We’ll draw up a timetable that uses every unique pairing before repeating any,
-        and spreads the wear evenly.
+        and spreads the wear evenly. You can tap a day to mark a holiday.
       </p>
     </section>
 
@@ -520,10 +591,12 @@
         <button type="button" class="ghost" id="copy-plan">Copy plan</button>
         <button type="button" class="ghost" id="download-csv">Download CSV</button>
         <button type="button" class="ghost" id="print-plan">Print</button>
+        <button type="button" class="ghost" id="clear-holidays" hidden>Clear holidays</button>
         <span class="copy-status" id="copy-status" role="status"></span>
       </div>
 
       <h2>Timetable</h2>
+      <p class="timetable-hint" id="timetable-hint">Tap a day to mark it as a holiday. The plan is then recalculated for the remaining working days.</p>
       <div class="timetable-wrap" id="timetable-wrap"></div>
 
       <div class="stats-grid">

@@ -285,14 +285,16 @@ describe("names, timetable, csv", () => {
     assert.equal(rows[0].week, 1);
     assert.equal(rows[0].cells.length, 5);
     assert.equal(rows[0].cells[0].dayName, "Mon");
+    assert.equal(rows[0].cells[0].combo, "A + X");
+    assert.equal(rows[0].cells[0].holiday, false);
     const csv = Somo.toCsv(p);
-    assert.match(csv, /^Week,Day,Shirt,Pant\n/);
+    assert.match(csv, /^Week,Day,Outfit,Holiday,Repeat of\n/);
     assert.equal(csv.trim().split("\n").length, 6);
     assert.match(Somo.toCsv(Somo.generateSchedule({
       shirts: 1, pants: 1, weeks: 1, daysPerWeek: 1,
       shirtNames: ['A, "quoted"'],
       pantNames: ["plain"],
-    })), /"A, ""quoted"""/);
+    })), /"A, ""quoted"" \+ plain"/);
   });
 });
 
@@ -322,5 +324,230 @@ describe("limits on a large but legal plan", () => {
     const p = plan(50, 2, 52, 7, 0);
     assertValidPlan(p, 50, 2, 52, 7, 0);
     assert.equal(p.totalDays, 364);
+  });
+});
+
+describe("combo labels and repeat references", () => {
+  it("formats outfits as Shirt + Pant, including custom names", () => {
+    assert.equal(Somo.comboLabel("Shirt 1", "Pant 2"), "Shirt 1 + Pant 2");
+    const named = Somo.generateSchedule({
+      shirts: 2,
+      pants: 2,
+      weeks: 1,
+      daysPerWeek: 5,
+      shirtNames: ["Blue check", ""],
+      pantNames: ["Navy", "Khaki"],
+    });
+    const combos = named.slots.filter((s) => !s.holiday).map((s) => s.combo);
+    for (const combo of combos) {
+      assert.match(combo, / \+ /);
+      assert.ok(
+        combo.startsWith("Blue check + ") || combo.startsWith("Shirt 2 + "),
+        combo
+      );
+    }
+  });
+
+  it("points a repeat at the most recent earlier day with the same pair", () => {
+    const p = Somo.generateSchedule({ shirts: 5, pants: 3, weeks: 4, daysPerWeek: 5 });
+    assert.equal(p.repeatDays, 5);
+    assert.equal(p.repeats.length, 5);
+    const rows = Somo.timetableRows(p);
+    const lastSeen = new Map();
+    let checked = 0;
+    for (const row of rows) {
+      for (const cell of row.cells) {
+        const key = cell.shirtIndex + ":" + cell.pantIndex;
+        if (lastSeen.has(key)) {
+          const expected = lastSeen.get(key);
+          assert.equal(cell.repeatOf, expected, cell.combo + " on " + Somo.slotRef(cell.week, cell.dayName));
+          assert.equal(cell.repeatLabel, "Repeat of " + expected);
+          checked++;
+        } else {
+          assert.equal(cell.repeatOf, null);
+        }
+        lastSeen.set(key, Somo.slotRef(cell.week, cell.dayName));
+      }
+    }
+    assert.equal(checked, 5);
+    // A third wearing, if any, should cite the second, not the first.
+    const p3 = Somo.generateSchedule({ shirts: 1, pants: 1, weeks: 3, daysPerWeek: 1 });
+    assert.equal(p3.slots[0].repeatOf, null);
+    assert.equal(p3.slots[1].repeatOf, "Week 1 Mon");
+    assert.equal(p3.slots[2].repeatOf, "Week 2 Mon");
+    assert.equal(Somo.timetableRows(p3)[2].cells[0].repeatLabel, "Repeat of Week 2 Mon");
+  });
+
+  it("lists repeats in CSV and plain text", () => {
+    const p = Somo.generateSchedule({
+      shirts: 2,
+      pants: 2,
+      weeks: 1,
+      daysPerWeek: 5,
+      shirtNames: ["A"],
+      pantNames: ["X", "Y"],
+    });
+    const csv = Somo.toCsv(p);
+    assert.match(csv, /^Week,Day,Outfit,Holiday,Repeat of\n/);
+    assert.match(csv, /A \+ X,,Week 1 Mon/);
+    const text = Somo.toPlainText(p);
+    assert.match(text, /A \+ X — Repeat of Week 1 Mon/);
+    assert.match(text, /Repeat list/);
+    assert.match(text, /Week 1 Fri: A \+ X — Repeat of Week 1 Mon/);
+  });
+});
+
+describe("holidays", () => {
+  it("parses in-period marks and ignores the rest", () => {
+    const info = Somo.parseHolidays(
+      [
+        { week: 2, day: 2 },
+        { week: 2, day: 2 },
+        { week: 9, day: 0 },
+        { week: 1, day: 6 },
+        { week: 0, day: 0 },
+        { foo: 1 },
+      ],
+      3,
+      5
+    );
+    assert.deepEqual(
+      info.applied.map((h) => ({ week: h.week, day: h.day, dayName: h.dayName })),
+      [{ week: 2, day: 2, dayName: "Wed" }]
+    );
+    assert.equal(info.ignored.length, 4);
+  });
+
+  it("leaves holiday slots empty and plans only the remaining working days", () => {
+    const holidays = [
+      { week: 1, day: 2 }, // Wed
+      { week: 2, day: 0 }, // Mon
+    ];
+    const p = Somo.generateSchedule({
+      shirts: 5,
+      pants: 3,
+      weeks: 3,
+      daysPerWeek: 5,
+      holidays,
+    });
+    assert.equal(p.periodDays, 15);
+    assert.equal(p.holidayCount, 2);
+    assert.equal(p.workingDays, 13);
+    assert.equal(p.totalDays, 13);
+    assert.equal(p.days.length, 13);
+    assert.equal(p.repeatDays, 0);
+    assert.equal(
+      p.summary,
+      "15 unique outfits; your 13 working days need no repeats (2 holidays)"
+    );
+    const wed = p.slots.find((s) => s.week === 1 && s.day === 2);
+    const mon2 = p.slots.find((s) => s.week === 2 && s.day === 0);
+    assert.equal(wed.holiday, true);
+    assert.equal(wed.combo, null);
+    assert.equal(wed.shirt, null);
+    assert.equal(mon2.holiday, true);
+    const work = p.slots.filter((s) => !s.holiday);
+    assert.equal(work.length, 13);
+    for (const slot of work) {
+      assert.equal(typeof slot.shirt, "number");
+      assert.match(slot.combo, /Shirt \d+ \+ Pant \d+/);
+    }
+    assert.ok(Somo.countsDifferByAtMostOne(p.shirtWear));
+    assert.ok(Somo.countsDifferByAtMostOne(p.pantWear));
+    assert.equal(p.shirtWear.reduce((a, b) => a + b, 0), 13);
+    assert.equal(p.shirtConsec, 0);
+    const csv = Somo.toCsv(p);
+    assert.match(csv, /1,Wed,,Holiday,/);
+    assert.match(csv, /2,Mon,,Holiday,/);
+    const text = Somo.toPlainText(p);
+    assert.match(text, /Wed: Holiday/);
+    assert.match(text, /Holidays: 2/);
+  });
+
+  it("still avoids the same shirt across a holiday gap when possible", () => {
+    const p = Somo.generateSchedule({
+      shirts: 5,
+      pants: 3,
+      weeks: 3,
+      daysPerWeek: 5,
+      holidays: [{ week: 2, day: 2 }],
+    });
+    assert.equal(p.shirtConsec, 0);
+    // Working-day neighbours on either side of the holiday should also differ.
+    const slots = p.slots;
+    const hol = slots.findIndex((s) => s.holiday);
+    const before = slots[hol - 1];
+    const after = slots[hol + 1];
+    assert.ok(!before.holiday && !after.holiday);
+    assert.notEqual(before.shirt, after.shirt);
+  });
+
+  it("treats a full-holiday period as having no outfits", () => {
+    const holidays = [];
+    for (let w = 1; w <= 2; w++) {
+      for (let d = 0; d < 5; d++) holidays.push({ week: w, day: d });
+    }
+    const p = Somo.generateSchedule({
+      shirts: 4,
+      pants: 3,
+      weeks: 2,
+      daysPerWeek: 5,
+      holidays,
+    });
+    assert.equal(p.workingDays, 0);
+    assert.equal(p.days.length, 0);
+    assert.equal(p.holidayCount, 10);
+    assert.ok(p.slots.every((s) => s.holiday && s.combo == null));
+    assert.deepEqual(p.shirtWear, [0, 0, 0, 0]);
+    assert.equal(
+      p.summary,
+      "All 10 days are marked as holidays, so there is no outfit plan."
+    );
+  });
+
+  it("keeps repeat references on working days only, skipping holidays", () => {
+    const p = Somo.generateSchedule({
+      shirts: 2,
+      pants: 1,
+      weeks: 2,
+      daysPerWeek: 5,
+      holidays: [{ week: 1, day: 4 }],
+    });
+    // 9 working days, 2 unique pairs, so 7 repeats, none on the holiday.
+    assert.equal(p.workingDays, 9);
+    assert.equal(p.repeatDays, 7);
+    assert.equal(p.slots[4].holiday, true);
+    assert.equal(p.slots[4].repeatOf, null);
+    for (const slot of p.slots) {
+      if (slot.holiday) continue;
+      if (slot.repeatOf) {
+        assert.match(slot.repeatOf, /^Week \d+ (Mon|Tue|Wed|Thu|Fri)$/);
+        assert.notEqual(slot.repeatOf, "Week 1 Fri");
+      }
+    }
+    const rows = Somo.timetableRows(p);
+    assert.equal(rows[0].cells[4].holiday, true);
+    assert.equal(rows[0].cells[4].repeatLabel, null);
+  });
+
+  it("uses a one-holiday wording and still shuffles around holidays", () => {
+    const options = {
+      shirts: 5,
+      pants: 3,
+      weeks: 3,
+      daysPerWeek: 5,
+      holidays: [{ week: 1, day: 0 }],
+    };
+    const a = Somo.generateSchedule(Object.assign({ seed: 0 }, options));
+    assert.equal(
+      a.summary,
+      "15 unique outfits; your 14 working days need no repeats (1 holiday)"
+    );
+    const seed = Somo.findShuffledSeed(options, a.days, 1, 48);
+    const b = Somo.generateSchedule(Object.assign({ seed: seed }, options));
+    assert.equal(b.workingDays, 14);
+    assert.equal(b.holidayCount, 1);
+    assert.notEqual(Somo.daySignature(a.days), Somo.daySignature(b.days));
+    assert.equal(b.slots[0].holiday, true);
   });
 });

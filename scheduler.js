@@ -107,6 +107,90 @@
     return out;
   }
 
+  function comboLabel(shirtName, pantName) {
+    return shirtName + " + " + pantName;
+  }
+
+  function slotRef(week, dayName) {
+    return "Week " + week + " " + dayName;
+  }
+
+  function repeatLabel(ref) {
+    return ref ? "Repeat of " + ref : null;
+  }
+
+  /**
+   * Holidays are {week, day} marks on the timetable: week is 1-based,
+   * day is a 0-based workday index (0 = Mon). Marks outside the current
+   * period, or past the end of the work week, are ignored.
+   */
+  function parseHolidays(holidays, weeks, daysPerWeek) {
+    const applied = [];
+    const ignored = [];
+    const seen = new Set();
+    if (!Array.isArray(holidays)) {
+      return { applied: applied, ignored: ignored, set: seen };
+    }
+    for (let i = 0; i < holidays.length; i++) {
+      const raw = holidays[i] || {};
+      const week = raw.week;
+      const day = raw.day;
+      if (!isInt(week) || !isInt(day)) {
+        ignored.push(raw);
+        continue;
+      }
+      if (week < 1 || week > weeks || day < 0 || day >= daysPerWeek) {
+        ignored.push({ week: week, day: day });
+        continue;
+      }
+      const key = week + ":" + day;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      applied.push({
+        week: week,
+        day: day,
+        slot: (week - 1) * daysPerWeek + day,
+        dayName: DAY_NAMES[day],
+      });
+    }
+    applied.sort(function (a, b) { return a.slot - b.slot; });
+    return { applied: applied, ignored: ignored, set: seen };
+  }
+
+  function attachRepeatRefs(slots) {
+    const lastSeen = new Map();
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (slot.holiday) continue;
+      const key = slot.shirt + ":" + slot.pant;
+      if (lastSeen.has(key)) {
+        const prev = lastSeen.get(key);
+        slot.repeatOf = slotRef(prev.week, prev.dayName);
+      } else {
+        slot.repeatOf = null;
+      }
+      lastSeen.set(key, { week: slot.week, dayName: slot.dayName });
+    }
+    return slots;
+  }
+
+  function extractRepeats(slots) {
+    const out = [];
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i];
+      if (slot.holiday || !slot.repeatOf) continue;
+      out.push({
+        week: slot.week,
+        day: slot.day,
+        dayName: slot.dayName,
+        combo: slot.combo,
+        repeatOf: slot.repeatOf,
+        label: slotRef(slot.week, slot.dayName),
+      });
+    }
+    return out;
+  }
+
   /**
    * Pick r edges of K_{S,P} so shirt degrees differ by at most 1 and
    * pant degrees differ by at most 1.
@@ -569,27 +653,43 @@
     };
   }
 
-  function summarize(unique, totalDays, repeatDays) {
-    const outfitWord = unique === 1 ? "unique outfit" : "unique outfits";
-    const dayWord = totalDays === 1 ? "day" : "days";
-    if (repeatDays === 0) {
-      return unique + " " + outfitWord + "; your " + totalDays + " " + dayWord + " need no repeats";
+  function summarize(unique, workingDays, repeatDays, holidayCount, periodDays) {
+    const holidays = holidayCount || 0;
+    if (workingDays === 0 && holidays > 0) {
+      const n = periodDays != null ? periodDays : holidays;
+      return (
+        "All " +
+        n +
+        (n === 1 ? " day is" : " days are") +
+        " marked as holidays, so there is no outfit plan."
+      );
     }
-    const verb = repeatDays === 1 ? "is a repeat" : "are repeats";
-    return (
-      unique +
-      " " +
-      outfitWord +
-      "; " +
-      repeatDays +
-      " of your " +
-      totalDays +
-      " " +
-      dayWord +
-      " " +
-      verb +
-      " of an earlier pair"
-    );
+    const outfitWord = unique === 1 ? "unique outfit" : "unique outfits";
+    const unit = holidays > 0 ? "working day" : "day";
+    const dayWord = workingDays === 1 ? unit : unit + "s";
+    let text;
+    if (repeatDays === 0) {
+      text = unique + " " + outfitWord + "; your " + workingDays + " " + dayWord + " need no repeats";
+    } else {
+      const verb = repeatDays === 1 ? "is a repeat" : "are repeats";
+      text =
+        unique +
+        " " +
+        outfitWord +
+        "; " +
+        repeatDays +
+        " of your " +
+        workingDays +
+        " " +
+        dayWord +
+        " " +
+        verb +
+        " of an earlier pair";
+    }
+    if (holidays > 0) {
+      text += " (" + holidays + " " + (holidays === 1 ? "holiday" : "holidays") + ")";
+    }
+    return text;
   }
 
   function generateSchedule(options) {
@@ -606,7 +706,9 @@
       throw err;
     }
 
-    const D = weeks * daysPerWeek;
+    const periodDays = weeks * daysPerWeek;
+    const holidayInfo = parseHolidays(options.holidays, weeks, daysPerWeek);
+    const D = periodDays - holidayInfo.applied.length;
     const rng = seed === 0 ? null : mulberry32(seed);
     const shirtPerm = shuffledPerm(S, rng);
     const pantPerm = shuffledPerm(P, rng);
@@ -614,8 +716,8 @@
     const pantRank = indexRank(pantPerm);
 
     const unique = S * P;
-    const fullRounds = Math.floor(D / unique);
-    const extraCount = D % unique;
+    const fullRounds = D > 0 ? Math.floor(D / unique) : 0;
+    const extraCount = D > 0 ? D % unique : 0;
 
     const rounds = [];
     const complete = allPairs(S, P, shirtPerm, pantPerm);
@@ -633,13 +735,48 @@
       for (let j = 0; j < ordered.length; j++) days.push(ordered[j]);
     }
 
-    const stats = analyze(days, S, P);
     const shirtNames = normalizeNames(options.shirtNames, S, defaultShirtName);
     const pantNames = normalizeNames(options.pantNames, P, defaultPantName);
     const dayNames = DAY_NAMES.slice(0, daysPerWeek);
 
+    let workIdx = 0;
+    const slots = [];
+    for (let w = 1; w <= weeks; w++) {
+      for (let d = 0; d < daysPerWeek; d++) {
+        const isHoliday = holidayInfo.set.has(w + ":" + d);
+        if (isHoliday) {
+          slots.push({
+            week: w,
+            day: d,
+            dayName: dayNames[d],
+            holiday: true,
+            shirt: null,
+            pant: null,
+            combo: null,
+            repeatOf: null,
+          });
+        } else {
+          const item = days[workIdx++];
+          slots.push({
+            week: w,
+            day: d,
+            dayName: dayNames[d],
+            holiday: false,
+            shirt: item.shirt,
+            pant: item.pant,
+            combo: comboLabel(shirtNames[item.shirt], pantNames[item.pant]),
+            repeatOf: null,
+          });
+        }
+      }
+    }
+    attachRepeatRefs(slots);
+
+    const stats = analyze(days, S, P);
+
     return {
       days: days,
+      slots: slots,
       weeks: weeks,
       daysPerWeek: daysPerWeek,
       shirts: S,
@@ -650,12 +787,24 @@
       dayNames: dayNames,
       unique: stats.unique,
       totalDays: stats.totalDays,
+      workingDays: D,
+      periodDays: periodDays,
+      holidayCount: holidayInfo.applied.length,
+      holidays: holidayInfo.applied,
+      ignoredHolidays: holidayInfo.ignored,
+      repeats: extractRepeats(slots),
       repeatDays: stats.repeatDays,
       shirtWear: stats.shirtWear,
       pantWear: stats.pantWear,
       shirtConsec: stats.shirtConsec,
       pantConsec: stats.pantConsec,
-      summary: summarize(stats.unique, stats.totalDays, stats.repeatDays),
+      summary: summarize(
+        stats.unique,
+        D,
+        stats.repeatDays,
+        holidayInfo.applied.length,
+        periodDays
+      ),
     };
   }
 
@@ -689,13 +838,19 @@
     for (let w = 0; w < plan.weeks; w++) {
       const cells = [];
       for (let d = 0; d < plan.daysPerWeek; d++) {
-        const item = plan.days[w * plan.daysPerWeek + d];
+        const slot = plan.slots[w * plan.daysPerWeek + d];
         cells.push({
-          dayName: plan.dayNames[d],
-          shirtIndex: item.shirt,
-          pantIndex: item.pant,
-          shirtName: plan.shirtNames[item.shirt],
-          pantName: plan.pantNames[item.pant],
+          week: slot.week,
+          day: slot.day,
+          dayName: slot.dayName,
+          holiday: slot.holiday,
+          shirtIndex: slot.holiday ? null : slot.shirt,
+          pantIndex: slot.holiday ? null : slot.pant,
+          shirtName: slot.holiday ? null : plan.shirtNames[slot.shirt],
+          pantName: slot.holiday ? null : plan.pantNames[slot.pant],
+          combo: slot.combo,
+          repeatOf: slot.repeatOf,
+          repeatLabel: repeatLabel(slot.repeatOf),
         });
       }
       rows.push({ week: w + 1, cells: cells });
@@ -704,14 +859,20 @@
   }
 
   function toCsv(plan) {
-    const lines = ["Week,Day,Shirt,Pant"];
+    const lines = ["Week,Day,Outfit,Holiday,Repeat of"];
     const rows = timetableRows(plan);
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       for (let j = 0; j < row.cells.length; j++) {
         const c = row.cells[j];
         lines.push(
-          [row.week, c.dayName, csvEscape(c.shirtName), csvEscape(c.pantName)].join(",")
+          [
+            row.week,
+            c.dayName,
+            csvEscape(c.holiday ? "" : c.combo),
+            c.holiday ? "Holiday" : "",
+            csvEscape(c.repeatOf || ""),
+          ].join(",")
         );
       }
     }
@@ -731,7 +892,14 @@
       lines.push("Week " + rows[i].week);
       for (let j = 0; j < rows[i].cells.length; j++) {
         const c = rows[i].cells[j];
-        lines.push("  " + c.dayName + ": " + c.shirtName + " + " + c.pantName);
+        let line = "  " + c.dayName + ": ";
+        if (c.holiday) {
+          line += "Holiday";
+        } else {
+          line += c.combo;
+          if (c.repeatLabel) line += " — " + c.repeatLabel;
+        }
+        lines.push(line);
       }
       lines.push("");
     }
@@ -745,15 +913,30 @@
       lines.push("  " + plan.pantNames[i] + ": " + plan.pantWear[i]);
     }
     lines.push("");
-    lines.push(
+    const workWord = plan.workingDays === 1 ? "working day" : "working days";
+    const dayUnit = plan.holidayCount ? workWord : plan.workingDays === 1 ? "day" : "days";
+    let repeatLine =
       "Repeats: " +
-        plan.repeatDays +
-        " of " +
-        plan.totalDays +
-        " days. Unique outfits available: " +
-        plan.unique +
-        "."
-    );
+      plan.repeatDays +
+      " of " +
+      plan.workingDays +
+      " " +
+      dayUnit +
+      ". Unique outfits available: " +
+      plan.unique +
+      ".";
+    if (plan.holidayCount) {
+      repeatLine += " Holidays: " + plan.holidayCount + ".";
+    }
+    lines.push(repeatLine);
+    if (plan.repeats && plan.repeats.length) {
+      lines.push("");
+      lines.push("Repeat list");
+      for (let r = 0; r < plan.repeats.length; r++) {
+        const item = plan.repeats[r];
+        lines.push("  " + item.label + ": " + item.combo + " — Repeat of " + item.repeatOf);
+      }
+    }
     return lines.join("\n");
   }
 
@@ -773,5 +956,9 @@
     toCsv: toCsv,
     toPlainText: toPlainText,
     daySignature: daySignature,
+    comboLabel: comboLabel,
+    slotRef: slotRef,
+    repeatLabel: repeatLabel,
+    parseHolidays: parseHolidays,
   };
 });

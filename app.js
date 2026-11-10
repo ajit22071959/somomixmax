@@ -24,6 +24,7 @@
   var copyBtn = document.getElementById("copy-plan");
   var csvBtn = document.getElementById("download-csv");
   var printBtn = document.getElementById("print-plan");
+  var clearHolidaysBtn = document.getElementById("clear-holidays");
   var copyStatus = document.getElementById("copy-status");
   var liveStatus = document.getElementById("live-status");
 
@@ -31,10 +32,53 @@
   var currentSeed = 0;
   var shirtNameValues = [];
   var pantNameValues = [];
+  var holidays = [];
 
   function toInt(value) {
     var n = Number(value);
     return Number.isInteger(n) ? n : NaN;
+  }
+
+  function normalizeHolidayMarks(list) {
+    var out = [];
+    var seen = {};
+    if (!Array.isArray(list)) return out;
+    for (var i = 0; i < list.length; i++) {
+      var raw = list[i] || {};
+      var week = raw.week;
+      var day = raw.day;
+      if (!Number.isInteger(week) || !Number.isInteger(day)) continue;
+      var key = week + ":" + day;
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push({ week: week, day: day });
+    }
+    return out;
+  }
+
+  function holidayIndex(week, day) {
+    for (var i = 0; i < holidays.length; i++) {
+      if (holidays[i].week === week && holidays[i].day === day) return i;
+    }
+    return -1;
+  }
+
+  function toggleHoliday(week, day) {
+    var idx = holidayIndex(week, day);
+    if (idx >= 0) holidays.splice(idx, 1);
+    else holidays.push({ week: week, day: day });
+    makePlan(
+      currentSeed,
+      idx >= 0 ? "Holiday removed. Plan recalculated." : "Holiday marked. Plan recalculated."
+    );
+    var sel = '.slot-btn[data-week="' + week + '"][data-day="' + day + '"]';
+    var buttons = document.querySelectorAll(sel);
+    for (var b = 0; b < buttons.length; b++) {
+      if (buttons[b].offsetParent !== null) {
+        buttons[b].focus();
+        break;
+      }
+    }
   }
 
   function readInputs() {
@@ -46,6 +90,7 @@
       shirtNames: collectNames(shirtNamesBox, shirtNameValues),
       pantNames: collectNames(pantNamesBox, pantNameValues),
       seed: currentSeed,
+      holidays: holidays.slice(),
     };
   }
 
@@ -155,6 +200,7 @@
       shirtNameValues = Array.isArray(data.shirtNames) ? data.shirtNames.slice() : [];
       pantNameValues = Array.isArray(data.pantNames) ? data.pantNames.slice() : [];
       currentSeed = Number.isInteger(data.seed) && data.seed >= 0 ? data.seed : 0;
+      holidays = normalizeHolidayMarks(data.holidays);
       return true;
     } catch (err) {
       return false;
@@ -192,6 +238,43 @@
     return word.charAt(0).toUpperCase() + word.slice(1);
   }
 
+  function fillSlotButton(btn, cell) {
+    var ref = Somo.slotRef(cell.week, cell.dayName);
+    btn.type = "button";
+    btn.className = "slot-btn" + (cell.holiday ? " holiday" : "") + (cell.repeatOf ? " repeat" : "");
+    btn.setAttribute("data-week", String(cell.week));
+    btn.setAttribute("data-day", String(cell.day));
+    btn.setAttribute("aria-pressed", cell.holiday ? "true" : "false");
+    btn.replaceChildren();
+    if (cell.holiday) {
+      var label = document.createElement("span");
+      label.className = "holiday-label";
+      label.textContent = "Holiday";
+      btn.appendChild(label);
+      btn.setAttribute("aria-label", ref + ", holiday. Click to remove this holiday.");
+    } else {
+      var combo = document.createElement("span");
+      combo.className = "combo";
+      combo.textContent = cell.combo;
+      btn.appendChild(combo);
+      if (cell.repeatLabel) {
+        var rep = document.createElement("span");
+        rep.className = "repeat-of";
+        rep.textContent = cell.repeatLabel;
+        btn.appendChild(rep);
+      }
+      var aria = ref + ", " + cell.combo;
+      if (cell.repeatLabel) aria += ", " + cell.repeatLabel;
+      aria += ". Click to mark as a holiday.";
+      btn.setAttribute("aria-label", aria);
+    }
+    var tip = document.createElement("span");
+    tip.className = "slot-affordance";
+    tip.textContent = cell.holiday ? "Tap to undo" : "Tap to mark holiday";
+    btn.appendChild(tip);
+    return btn;
+  }
+
   function renderTimetable(plan) {
     timetableWrap.replaceChildren();
     var rows = Somo.timetableRows(plan);
@@ -200,7 +283,7 @@
     table.className = "timetable desktop-table";
     var cap = document.createElement("caption");
     cap.className = "sr-only";
-    cap.textContent = "Outfit timetable by week and day";
+    cap.textContent = "Outfit timetable by week and day. Click a day to mark or unmark it as a holiday.";
     table.appendChild(cap);
 
     var thead = document.createElement("thead");
@@ -229,14 +312,8 @@
         var cell = rows[i].cells[j];
         var td = document.createElement("td");
         td.setAttribute("data-day", cell.dayName);
-        var shirt = document.createElement("span");
-        shirt.className = "piece shirt";
-        shirt.textContent = cell.shirtName;
-        var pant = document.createElement("span");
-        pant.className = "piece pant";
-        pant.textContent = cell.pantName;
-        td.appendChild(shirt);
-        td.appendChild(pant);
+        if (cell.holiday) td.className = "is-holiday";
+        td.appendChild(fillSlotButton(document.createElement("button"), cell));
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
@@ -256,17 +333,18 @@
       for (var c = 0; c < rows[w].cells.length; c++) {
         var item = rows[w].cells[c];
         var li = document.createElement("li");
+        var btn = fillSlotButton(document.createElement("button"), item);
         var day = document.createElement("span");
         day.className = "card-day";
         day.textContent = item.dayName;
         var outfit = document.createElement("span");
         outfit.className = "card-outfit";
-        outfit.innerHTML =
-          "<span class=\"piece shirt\"></span><span class=\"piece pant\"></span>";
-        outfit.querySelector(".shirt").textContent = item.shirtName;
-        outfit.querySelector(".pant").textContent = item.pantName;
-        li.appendChild(day);
-        li.appendChild(outfit);
+        while (btn.firstChild && !(btn.firstChild.classList && btn.firstChild.classList.contains("slot-affordance"))) {
+          outfit.appendChild(btn.firstChild);
+        }
+        btn.insertBefore(day, btn.firstChild);
+        btn.insertBefore(outfit, day.nextSibling);
+        li.appendChild(btn);
         list.appendChild(li);
       }
       section.appendChild(list);
@@ -283,11 +361,12 @@
     renderWearList(pantWearEl, plan.pantNames, plan.pantWear, "pant");
 
     var uniqueWord = plan.unique === 1 ? "unique outfit" : "unique outfits";
-    var dayWord = plan.totalDays === 1 ? "day" : "days";
-    var repeatWord = plan.repeatDays === 1 ? "day is" : "days are";
+    var workWord = plan.workingDays === 1 ? "working day" : "working days";
+    var dayWord = plan.holidayCount ? workWord : plan.workingDays === 1 ? "day" : "days";
+    var repeatWord = plan.repeatDays === 1 ? "is" : "are";
     repeatEl.replaceChildren();
     var p1 = document.createElement("p");
-    p1.textContent =
+    var cover =
       plan.unique +
       " " +
       uniqueWord +
@@ -295,28 +374,66 @@
       plan.shirts +
       " × " +
       plan.pants +
-      "). The plan covers " +
-      plan.totalDays +
-      " " +
-      dayWord +
-      ".";
+      "). ";
+    if (plan.holidayCount) {
+      cover +=
+        "The plan covers " +
+        plan.workingDays +
+        " " +
+        workWord +
+        " and " +
+        plan.holidayCount +
+        " " +
+        (plan.holidayCount === 1 ? "holiday" : "holidays") +
+        ".";
+    } else {
+      cover += "The plan covers " + plan.workingDays + " " + dayWord + ".";
+    }
+    p1.textContent = cover;
     var p2 = document.createElement("p");
     p2.textContent =
-      plan.repeatDays === 0
-        ? "None of the days repeat a pair from an earlier day."
-        : plan.repeatDays +
-          " of the " +
-          plan.totalDays +
-          " " +
-          dayWord +
-          " " +
-          repeatWord +
-          " a repeat of a pair worn on a previous day.";
+      plan.workingDays === 0
+        ? "There are no working days left to assign outfits."
+        : plan.repeatDays === 0
+          ? "None of the days repeat a pair from an earlier day."
+          : plan.repeatDays +
+            " of the " +
+            plan.workingDays +
+            " " +
+            dayWord +
+            " " +
+            repeatWord +
+            " a repeat of a pair worn on a previous day.";
     repeatEl.appendChild(p1);
     repeatEl.appendChild(p2);
+    if (plan.repeats && plan.repeats.length) {
+      var heading = document.createElement("h3");
+      heading.textContent = "Repeat list";
+      var list = document.createElement("ul");
+      list.className = "repeat-list";
+      for (var r = 0; r < plan.repeats.length; r++) {
+        var item = plan.repeats[r];
+        var li = document.createElement("li");
+        li.textContent = item.label + ": " + item.combo + " — Repeat of " + item.repeatOf;
+        list.appendChild(li);
+      }
+      repeatEl.appendChild(heading);
+      repeatEl.appendChild(list);
+    }
+    if (plan.ignoredHolidays && plan.ignoredHolidays.length) {
+      var note = document.createElement("p");
+      note.className = "ignored-note";
+      var n = plan.ignoredHolidays.length;
+      note.textContent =
+        n === 1
+          ? "1 holiday mark is outside the current period or is not a work day, so it was ignored."
+          : n + " holiday marks are outside the current period or are not work days, so they were ignored.";
+      repeatEl.appendChild(note);
+    }
 
     results.hidden = false;
-    shuffleBtn.disabled = false;
+    shuffleBtn.disabled = plan.workingDays < 1;
+    if (clearHolidaysBtn) clearHolidaysBtn.hidden = holidays.length === 0;
     liveStatus.textContent = message || plan.summary;
   }
 
@@ -422,6 +539,23 @@
   printBtn.addEventListener("click", function () {
     window.print();
   });
+
+  timetableWrap.addEventListener("click", function (event) {
+    var btn = event.target.closest ? event.target.closest(".slot-btn") : null;
+    if (!btn || !timetableWrap.contains(btn)) return;
+    var week = Number(btn.getAttribute("data-week"));
+    var day = Number(btn.getAttribute("data-day"));
+    if (!Number.isInteger(week) || !Number.isInteger(day)) return;
+    toggleHoliday(week, day);
+  });
+
+  if (clearHolidaysBtn) {
+    clearHolidaysBtn.addEventListener("click", function () {
+      if (!holidays.length) return;
+      holidays = [];
+      makePlan(currentSeed, "Holidays cleared. Plan recalculated.");
+    });
+  }
 
   shirtsInput.addEventListener("input", syncNameFields);
   pantsInput.addEventListener("input", syncNameFields);

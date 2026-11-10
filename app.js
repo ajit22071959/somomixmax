@@ -122,11 +122,13 @@
   }
 
   function focusSlotControl(week, day, selector) {
-    var sel = '.slot[data-week="' + week + '"][data-day="' + day + '"] ' + selector;
-    var buttons = document.querySelectorAll(sel);
-    for (var b = 0; b < buttons.length; b++) {
-      if (buttons[b].offsetParent !== null) {
-        buttons[b].focus();
+    var rootSel = '.slot[data-week="' + week + '"][data-day="' + day + '"]';
+    var nodes = selector
+      ? document.querySelectorAll(rootSel + " " + selector)
+      : document.querySelectorAll(rootSel);
+    for (var b = 0; b < nodes.length; b++) {
+      if (nodes[b].offsetParent !== null) {
+        nodes[b].focus();
         return;
       }
     }
@@ -147,7 +149,7 @@
       currentSeed,
       idx >= 0 ? "Holiday removed. Plan recalculated." : "Holiday marked. Plan recalculated."
     );
-    focusSlotControl(week, day, ".holiday-toggle");
+    focusSlotControl(week, day, idx >= 0 ? ".holiday-toggle" : null);
   }
 
   function shuffleDay(week, day) {
@@ -341,16 +343,24 @@
 
   function fillSlotCell(cell, withDayName) {
     var ref = Somo.slotRef(cell.week, cell.dayName);
-    var wrap = document.createElement("div");
+    var wrap = document.createElement(cell.holiday ? "button" : "div");
     wrap.className = "slot" + (cell.holiday ? " holiday" : "") + (cell.locked ? " locked" : "");
     wrap.setAttribute("data-week", String(cell.week));
     wrap.setAttribute("data-day", String(cell.day));
+    if (cell.holiday) {
+      wrap.type = "button";
+      wrap.setAttribute("aria-label", "Unmark holiday");
+      wrap.setAttribute("aria-pressed", "true");
+      wrap.title = "Unmark holiday";
+    }
 
+    var main = document.createElement("div");
+    main.className = "slot-main";
     if (withDayName) {
       var day = document.createElement("span");
       day.className = "card-day";
       day.textContent = cell.dayName;
-      wrap.appendChild(day);
+      main.appendChild(day);
     }
 
     var body = document.createElement("div");
@@ -360,6 +370,10 @@
       label.className = "holiday-label";
       label.textContent = "Holiday";
       body.appendChild(label);
+      var tip = document.createElement("span");
+      tip.className = "slot-affordance";
+      tip.textContent = "Tap to unmark";
+      body.appendChild(tip);
     } else {
       var combo = document.createElement("span");
       combo.className = "combo";
@@ -372,7 +386,7 @@
         body.appendChild(rep);
       }
     }
-    wrap.appendChild(body);
+    main.appendChild(body);
 
     if (cell.locked) {
       var lockBtn = document.createElement("button");
@@ -381,30 +395,28 @@
       lockBtn.setAttribute("aria-label", ref + " is locked to " + cell.combo + ". Click to unlock.");
       lockBtn.title = "Unlock this day";
       lockBtn.innerHTML = LOCK_SVG;
-      wrap.appendChild(lockBtn);
+      main.appendChild(lockBtn);
     }
+    wrap.appendChild(main);
 
-    var tools = document.createElement("div");
-    tools.className = "slot-tools";
-    var holBtn = document.createElement("button");
-    holBtn.type = "button";
-    holBtn.className = "holiday-toggle";
-    holBtn.setAttribute("aria-pressed", cell.holiday ? "true" : "false");
-    holBtn.textContent = cell.holiday ? "Unmark holiday" : "Mark holiday";
-    holBtn.setAttribute(
-      "aria-label",
-      cell.holiday ? "Unmark the holiday on " + ref + "." : "Mark " + ref + " as a holiday."
-    );
-    tools.appendChild(holBtn);
     if (!cell.holiday) {
+      var tools = document.createElement("div");
+      tools.className = "slot-tools";
+      var holBtn = document.createElement("button");
+      holBtn.type = "button";
+      holBtn.className = "holiday-toggle";
+      holBtn.setAttribute("aria-pressed", "false");
+      holBtn.textContent = "Mark holiday";
+      holBtn.setAttribute("aria-label", "Mark " + ref + " as a holiday.");
+      tools.appendChild(holBtn);
       var shuf = document.createElement("button");
       shuf.type = "button";
       shuf.className = "day-shuffle";
       shuf.textContent = "Shuffle";
       shuf.setAttribute("aria-label", "Shuffle " + ref + " to a different outfit and lock it.");
       tools.appendChild(shuf);
+      wrap.appendChild(tools);
     }
-    wrap.appendChild(tools);
     return wrap;
   }
 
@@ -416,7 +428,7 @@
     table.className = "timetable desktop-table";
     var cap = document.createElement("caption");
     cap.className = "sr-only";
-    cap.textContent = "Outfit timetable by week and day. Use Mark holiday to mark a day off, or Shuffle to lock a different outfit on that day.";
+    cap.textContent = "Outfit timetable by week and day. Use Mark holiday to mark a day off, or Shuffle to lock a different outfit on that day. Tap a holiday cell to unmark it.";
     table.appendChild(cap);
 
     var thead = document.createElement("thead");
@@ -720,6 +732,13 @@
     if (holEl && timetableWrap.contains(holEl)) {
       var holAt = slotCoords(holEl);
       if (holAt) toggleHoliday(holAt.week, holAt.day);
+      return;
+    }
+    var holSlot = target.closest(".slot.holiday");
+    if (holSlot && timetableWrap.contains(holSlot)) {
+      event.preventDefault();
+      var slotAt = slotCoords(holSlot);
+      if (slotAt) toggleHoliday(slotAt.week, slotAt.day);
     }
   });
 

@@ -273,14 +273,14 @@
       margin: 0 0 16px;
       line-height: 1.35;
     }
-    .result-actions { margin: 0 0 22px; }
+    .result-actions { margin: 14px 0 22px; }
     .copy-status {
       font-size: 12px;
       color: var(--accent);
       min-height: 1.2em;
     }
 
-    .timetable-wrap { overflow-x: auto; margin-bottom: 8px; }
+    .timetable-wrap { overflow-x: auto; margin-bottom: 0; }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -648,6 +648,10 @@
 
     <section class="results" id="results" hidden>
       <p class="summary" id="summary"></p>
+
+      <h2>Timetable</h2>
+      <p class="timetable-hint" id="timetable-hint">Use Mark holiday to mark a day off, or Shuffle to try a different outfit on that day and lock it. Tap the lock to unlock. The rest of the plan is then recalculated.</p>
+      <div class="timetable-wrap" id="timetable-wrap"></div>
       <div class="actions result-actions">
         <button type="button" class="ghost" id="copy-plan">Copy plan</button>
         <button type="button" class="ghost" id="download-csv">Download CSV</button>
@@ -656,10 +660,6 @@
         <button type="button" class="ghost" id="clear-locks" hidden>Clear locks</button>
         <span class="copy-status" id="copy-status" role="status"></span>
       </div>
-
-      <h2>Timetable</h2>
-      <p class="timetable-hint" id="timetable-hint">Use Mark holiday to mark a day off, or Shuffle to try a different outfit on that day and lock it. Tap the lock to unlock. The rest of the plan is then recalculated.</p>
-      <div class="timetable-wrap" id="timetable-wrap"></div>
 
       <div class="stats-grid">
         <div class="stat-card">

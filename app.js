@@ -346,24 +346,20 @@
     wrap.setAttribute("data-week", String(cell.week));
     wrap.setAttribute("data-day", String(cell.day));
 
-    var holBtn = document.createElement("button");
-    holBtn.type = "button";
-    holBtn.className = "holiday-toggle";
-    holBtn.setAttribute("aria-pressed", cell.holiday ? "true" : "false");
     if (withDayName) {
       var day = document.createElement("span");
       day.className = "card-day";
       day.textContent = cell.dayName;
-      holBtn.appendChild(day);
+      wrap.appendChild(day);
     }
-    var body = document.createElement("span");
-    body.className = withDayName ? "card-outfit" : "slot-body";
+
+    var body = document.createElement("div");
+    body.className = withDayName ? "slot-body card-outfit" : "slot-body";
     if (cell.holiday) {
       var label = document.createElement("span");
       label.className = "holiday-label";
       label.textContent = "Holiday";
       body.appendChild(label);
-      holBtn.setAttribute("aria-label", ref + ", holiday. Click to remove this holiday.");
     } else {
       var combo = document.createElement("span");
       combo.className = "combo";
@@ -375,18 +371,8 @@
         rep.textContent = cell.repeatLabel;
         body.appendChild(rep);
       }
-      var aria = ref + ", " + cell.combo;
-      if (cell.locked) aria += ", locked";
-      if (cell.repeatLabel) aria += ", " + cell.repeatLabel;
-      aria += ". Click to mark as a holiday.";
-      holBtn.setAttribute("aria-label", aria);
     }
-    var tip = document.createElement("span");
-    tip.className = "slot-affordance";
-    tip.textContent = cell.holiday ? "Remove holiday" : "Mark holiday";
-    body.appendChild(tip);
-    holBtn.appendChild(body);
-    wrap.appendChild(holBtn);
+    wrap.appendChild(body);
 
     if (cell.locked) {
       var lockBtn = document.createElement("button");
@@ -400,6 +386,16 @@
 
     var tools = document.createElement("div");
     tools.className = "slot-tools";
+    var holBtn = document.createElement("button");
+    holBtn.type = "button";
+    holBtn.className = "holiday-toggle";
+    holBtn.setAttribute("aria-pressed", cell.holiday ? "true" : "false");
+    holBtn.textContent = cell.holiday ? "Unmark holiday" : "Mark holiday";
+    holBtn.setAttribute(
+      "aria-label",
+      cell.holiday ? "Unmark the holiday on " + ref + "." : "Mark " + ref + " as a holiday."
+    );
+    tools.appendChild(holBtn);
     if (!cell.holiday) {
       var shuf = document.createElement("button");
       shuf.type = "button";
@@ -420,7 +416,7 @@
     table.className = "timetable desktop-table";
     var cap = document.createElement("caption");
     cap.className = "sr-only";
-    cap.textContent = "Outfit timetable by week and day. Use Holiday to mark a day off, or Shuffle to lock a different outfit on that day.";
+    cap.textContent = "Outfit timetable by week and day. Use Mark holiday to mark a day off, or Shuffle to lock a different outfit on that day.";
     table.appendChild(cap);
 
     var thead = document.createElement("thead");
